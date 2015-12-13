@@ -5,8 +5,21 @@
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
+    <appender name="Etw" class="com.microsoft.log4jappender.logback.LogbackEtwAppender">
+        <source>HadoopServiceLog</source>
+        <component>sparklivy</component>
+        <OSType>Linux</OSType>
+    </appender>
+    <appender name="EtwFilter" class="com.microsoft.log4jappender.logback.LogbackFilterLogAppender">
+        <source>CentralFilteredHadoopServiceLogs</source>
+        <component>sparklivy</component>
+        <whitelistFileName>NA</whitelistFileName>
+        <OSType>Linux</OSType>
+    </appender>
 
     <root level="info">
         <appender-ref ref="STDOUT" />
+        <appender-ref ref="Etw" />
+        <appender-ref ref="EtwFilter" />
     </root>
 </configuration>
