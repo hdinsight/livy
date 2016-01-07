@@ -37,6 +37,7 @@ object LivyConf {
 
   val TEST_MODE = sys.env.get("livy.test").map(_.toBoolean).getOrElse(false)
 
+  val REQUEST_LOG_DIR = Entry("livy.request-log.dir", null)
   val SESSION_FACTORY = Entry("livy.server.session.factory", "process")
   val SPARK_HOME = Entry("livy.server.spark-home", null)
   val SPARK_SUBMIT_KEY = Entry("livy.server.spark-submit", null)
@@ -90,6 +91,11 @@ class LivyConf(loadDefaults: Boolean) extends ClientConf[LivyConf](null) {
     Option(get(SPARK_SUBMIT_KEY))
       .orElse { sparkHome().map { _ + File.separator + "bin" + File.separator + "spark-submit" } }
       .getOrElse("spark-submit")
+  }
+
+  /** Return the path where request log should be storeed. None if it's disabled */
+  def requestLogDir(): Option[String] = {
+    Option(get(REQUEST_LOG_DIR))
   }
 
   private def loadFromMap(map: Iterable[(String, String)]): Unit = {
