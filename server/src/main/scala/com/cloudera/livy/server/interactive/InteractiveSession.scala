@@ -39,6 +39,7 @@ import com.cloudera.livy.sessions.interactive.Statement
 import com.cloudera.livy.utils.SparkProcessBuilder
 
 object InteractiveSession {
+  val LivyReplAdditionalFiles = "livy.repl.additional.files"
   val LivyReplDriverClassPath = "livy.repl.driverClassPath"
   val LivyReplJars = "livy.repl.jars"
   val LivyServerUrl = "livy.server.serverUrl"
@@ -114,6 +115,9 @@ class InteractiveSession(
       }
       builder.conf(SparkDriverExtraJavaOptions, javaOpts, admin = true)
     }
+
+    Option(livyConf.get(LivyReplAdditionalFiles))
+      .foreach(builder.file)
 
     Option(livyConf.get(LivyReplDriverClassPath))
       .foreach(builder.driverClassPath)
