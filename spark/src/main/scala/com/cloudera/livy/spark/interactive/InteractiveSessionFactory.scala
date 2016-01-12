@@ -29,6 +29,7 @@ import com.cloudera.livy.spark.{SparkProcess, SparkProcessBuilder, SparkProcessB
 import com.cloudera.livy.spark.SparkProcessBuilder.{AbsolutePath, RelativePath}
 
 object InteractiveSessionFactory {
+  val LivyReplAdditionalFiles = "livy.repl.additional.files"
   val LivyReplDriverClassPath = "livy.repl.driverClassPath"
   val LivyReplJars = "livy.repl.jars"
   val LivyServerUrl = "livy.server.serverUrl"
@@ -112,6 +113,8 @@ abstract class InteractiveSessionFactory(processFactory: SparkProcessBuilderFact
 
     Option(processFactory.livyConf.get(LivyReplDriverClassPath))
       .foreach(builder.driverClassPath)
+
+    builder.files(processFactory.livyConf.getOption(LivyReplAdditionalFiles).map(AbsolutePath))
 
     sys.props.get(LivyServerUrl).foreach { serverUrl =>
       val callbackUrl = f"$serverUrl/sessions/$id/callback"
