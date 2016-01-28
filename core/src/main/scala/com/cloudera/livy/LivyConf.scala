@@ -25,7 +25,6 @@ import com.cloudera.livy.client.common.ClientConf
 import com.cloudera.livy.client.common.ClientConf.ConfEntry
 
 object LivyConf {
-
   case class Entry(override val key: String, override val dflt: AnyRef) extends ConfEntry
 
   object Entry {
@@ -42,6 +41,7 @@ object LivyConf {
   val IMPERSONATION_ENABLED = Entry("livy.impersonation.enabled", false)
   val LIVY_HOME = Entry("livy.home", null)
   val FILE_UPLOAD_MAX_SIZE = Entry("livy.file.upload.max.size", 100L * 1024 * 1024)
+  val YARN_FILESYSTEM_ROOT = Entry("livy.server.yarn-filesystem-root", "hdfs://")
 
   sealed trait SessionKind
   case class Process() extends SessionKind
@@ -91,10 +91,13 @@ class LivyConf(loadDefaults: Boolean) extends ClientConf[LivyConf](null) {
     case kind => throw new IllegalStateException(f"unknown kind $kind")
   }
 
+  /** Return the filesystem root used in YARN mode. Livy will prefix relative path with it. */
+  def yarnFileSystemRoot(): String = get(YARN_FILESYSTEM_ROOT)
+
   /** Return the filesystem root. Defaults to the local filesystem. */
   def filesystemRoot(): String = sessionKind() match {
     case Process() => "file://"
-    case Yarn() => "hdfs://"
+    case Yarn() => yarnFileSystemRoot
   }
 
   private def loadFromMap(map: Iterable[(String, String)]): Unit = {

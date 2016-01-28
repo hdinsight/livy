@@ -284,7 +284,7 @@ class SparkProcessBuilder(
   private def fromPath(path: Path) = path match {
     case AbsolutePath(p) => p
     case RelativePath(p) =>
-      if (p.startsWith("hdfs://")) {
+      if (p.contains("://")) {
         p
       } else {
         fsRoot + "/" + p

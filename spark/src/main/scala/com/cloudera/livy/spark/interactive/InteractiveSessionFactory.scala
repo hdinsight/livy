@@ -114,7 +114,7 @@ abstract class InteractiveSessionFactory(processFactory: SparkProcessBuilderFact
     Option(processFactory.livyConf.get(LivyReplDriverClassPath))
       .foreach(builder.driverClassPath)
 
-    builder.files(processFactory.livyConf.getOption(LivyReplAdditionalFiles).map(AbsolutePath))
+    builder.files(Option(processFactory.livyConf.get(LivyReplAdditionalFiles)).map(AbsolutePath))
 
     sys.props.get(LivyServerUrl).foreach { serverUrl =>
       val callbackUrl = f"$serverUrl/sessions/$id/callback"
