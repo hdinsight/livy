@@ -65,7 +65,8 @@ class InteractiveSessionServlet(
       "state" -> session.state.toString,
       "kind" -> session.kind.toString,
       "proxyUser" -> session.proxyUser,
-      "logs" -> logs)
+      "logs" -> logs,
+      "cluster" -> session.cluster)
   }
 
   private def statementView(statement: Statement): Any = {

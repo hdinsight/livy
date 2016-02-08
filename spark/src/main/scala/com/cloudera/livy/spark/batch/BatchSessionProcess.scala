@@ -20,15 +20,15 @@ package com.cloudera.livy.spark.batch
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 
+import com.cloudera.livy.sessions.{ProcessClusterManagement, SessionState}
 import com.cloudera.livy.LineBufferedProcess
-import com.cloudera.livy.sessions.SessionState
 import com.cloudera.livy.sessions.batch.BatchSession
-import com.cloudera.livy.spark.SparkProcess
 
 class BatchSessionProcess(
     id: Int, owner: String, process: LineBufferedProcess) extends BatchSession(id, owner) {
-
   protected implicit def executor: ExecutionContextExecutor = ExecutionContext.global
+
+  override val cluster = new ProcessClusterManagement
 
   private[this] var _state: SessionState = SessionState.Running()
 

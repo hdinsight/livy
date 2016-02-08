@@ -43,8 +43,9 @@ private class BatchSessionYarn(
     owner: String,
     process: LineBufferedProcess,
     jobFuture: Future[Job]) extends BatchSession(id, owner) {
-
   implicit def executor: ExecutionContextExecutor = ExecutionContext.global
+
+  override val cluster = new YarnClusterManagement
 
   private var _state: SessionState = SessionState.Starting()
 
@@ -54,8 +55,9 @@ private class BatchSessionYarn(
     case util.Failure(_) =>
       _state = SessionState.Error()
 
-    case util.Success(job) =>
+    case util.Success(job: Job) =>
       _state = SessionState.Running()
+      cluster.applicationId = Option(job.applicationId)
 
       _jobThread = new Thread {
         override def run(): Unit = {

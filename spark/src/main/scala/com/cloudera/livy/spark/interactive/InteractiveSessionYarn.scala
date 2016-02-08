@@ -20,11 +20,10 @@ package com.cloudera.livy.spark.interactive
 
 import java.util.concurrent.TimeUnit
 
-import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
-import com.cloudera.livy.sessions.SessionState
-import com.cloudera.livy.sessions.interactive.InteractiveSession
+import com.cloudera.livy.sessions.{SessionState, YarnClusterManagement}
 import com.cloudera.livy.spark.SparkProcess
 import com.cloudera.livy.yarn.LivyYarnClient
 
@@ -35,9 +34,15 @@ private class InteractiveSessionYarn(
     process: SparkProcess,
     request: CreateInteractiveRequest)
   extends InteractiveWebSession(id, owner, process, request) {
+  override val cluster = new YarnClusterManagement
 
   private val job = Future {
     client.getJobFromProcess(process)
+  }
+
+  job.onSuccess {
+    case job =>
+      cluster.applicationId = Option(job.applicationId)
   }
 
   job.onFailure { case _ =>

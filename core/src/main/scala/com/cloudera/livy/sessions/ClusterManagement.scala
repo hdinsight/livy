@@ -18,37 +18,10 @@
 
 package com.cloudera.livy.sessions
 
-import java.util.concurrent.TimeUnit
+class ClusterManagement(val clusterType: String) { }
 
-import scala.concurrent.Future
+class ProcessClusterManagement()
+  extends ClusterManagement("process") { }
 
-abstract class Session(val id: Int, val owner: String) {
-
-  private var _lastActivity = 0L
-
-  // This field contains cluster manager specific information. (e.g yarn app id)
-  val cluster: ClusterManagement
-
-  def lastActivity: Option[Long] = if (_lastActivity == 0L) None else Some(_lastActivity)
-
-  def stoppedTime: Option[Long] = {
-    state match {
-      case SessionState.Error(time) => Some(time)
-      case SessionState.Dead(time) => Some(time)
-      case SessionState.Success(time) => Some(time)
-      case _ => None
-    }
-  }
-
-  val timeout: Long = TimeUnit.HOURS.toNanos(1)
-
-  def state: SessionState
-
-  def stop(): Future[Unit]
-
-  def recordActivity(): Unit = {
-    _lastActivity = System.nanoTime()
-  }
-
-  def logLines(): IndexedSeq[String]
-}
+class YarnClusterManagement(var applicationId: Option[String] = None)
+  extends ClusterManagement("yarn") { }

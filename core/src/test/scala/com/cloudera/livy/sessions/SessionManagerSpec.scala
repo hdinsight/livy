@@ -28,6 +28,8 @@ import com.cloudera.livy.LivyConf
 class SessionManagerSpec extends FlatSpec with Matchers {
 
   class MockSession(id: Int, owner: String) extends Session(id, owner) {
+    override val cluster = new ProcessClusterManagement
+
     override def stop(): Future[Unit] = Future.successful(())
 
     override def logLines(): IndexedSeq[String] = IndexedSeq()
