@@ -33,7 +33,7 @@ import org.json4s.{DefaultFormats, Formats, JValue}
 import org.json4s.JsonAST.{JNull, JString}
 import org.json4s.jackson.Serialization.write
 
-import com.cloudera.livy.{ExecuteRequest, LivyConf, Utils}
+import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging, Utils}
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
 import com.cloudera.livy.utils.SparkProcessBuilder
@@ -54,7 +54,7 @@ class InteractiveSession(
     owner: String,
     livyConf: LivyConf,
     request: CreateInteractiveRequest)
-  extends Session(id, owner) {
+  extends Session(id, owner) with Logging {
 
   import InteractiveSession._
 
@@ -244,6 +244,7 @@ class InteractiveSession(
 
       val req = (svc / "execute").setContentType("application/json", "UTF-8") << write(content)
 
+      info(s"Executing statement ${id}")
       val future = Http(req OK as.json4s.Json).map { case resp: JValue =>
         parseResponse(resp).getOrElse {
           // The result isn't ready yet. Loop until it is.

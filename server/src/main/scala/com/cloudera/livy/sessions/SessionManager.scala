@@ -45,7 +45,7 @@ class SessionManager[S <: Session](val livyConf: LivyConf) extends Logging {
   def nextId(): Int = idCounter.getAndIncrement()
 
   def register(session: S): S = {
-    info(s"Registering new session ${session.id}")
+    info(s"Registering new session ${session.getClass.getSimpleName} ${session.id}")
     synchronized {
       sessions.put(session.id, session)
     }
@@ -63,9 +63,11 @@ class SessionManager[S <: Session](val livyConf: LivyConf) extends Logging {
   }
 
   def delete(session: S): Future[Unit] = {
+    info(s"Deleting new session ${session.getClass.getSimpleName} ${session.id}")
     session.stop().map { case _ =>
       synchronized {
         sessions.remove(session.id)
+        info(s"Deleted new session ${session.getClass.getSimpleName} ${session.id}")
       }
     }
   }
