@@ -23,6 +23,7 @@ import java.net.URL
 import scala.annotation.tailrec
 import scala.concurrent.Future
 
+import com.cloudera.livy.sessions.ProcessClusterManagement
 import com.cloudera.livy.spark.SparkProcess
 
 private class InteractiveSessionProcess(
@@ -31,6 +32,8 @@ private class InteractiveSessionProcess(
     process: SparkProcess,
     request: CreateInteractiveRequest)
   extends InteractiveWebSession(id, owner, process, request) {
+
+  override val cluster = new ProcessClusterManagement
 
   val stdoutThread = new Thread {
     override def run() = {

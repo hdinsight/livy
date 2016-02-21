@@ -35,11 +35,13 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import com.cloudera.livy.{LivyClientBuilder, Logging}
 import com.cloudera.livy.client.common.HttpMessages._
 import com.cloudera.livy.client.local.LocalClient
-import com.cloudera.livy.sessions.{Session, SessionState}
+import com.cloudera.livy.sessions.{Session, SessionState, YarnClusterManagement}
 
 class ClientSession(id: Int, owner: String, createRequest: CreateClientRequest, livyHome: String)
     extends Session(id, owner) with Logging {
   implicit val executionContext = ExecutionContext.global
+
+  override val cluster = new YarnClusterManagement
 
   var sessionState: SessionState = SessionState.Starting()
 

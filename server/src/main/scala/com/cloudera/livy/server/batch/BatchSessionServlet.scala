@@ -21,11 +21,11 @@ package com.cloudera.livy.server.batch
 import javax.servlet.http.HttpServletRequest
 
 import com.cloudera.livy.server.SessionServlet
-import com.cloudera.livy.sessions.SessionManager
+import com.cloudera.livy.sessions.{ClusterManagement, SessionManager}
 import com.cloudera.livy.sessions.batch.BatchSession
 import com.cloudera.livy.spark.batch.CreateBatchRequest
 
-case class BatchSessionView(id: Long, state: String, log: Seq[String])
+case class BatchSessionView(id: Long, state: String, log: Seq[String], cluster: ClusterManagement)
 
 class BatchSessionServlet(batchManager: SessionManager[BatchSession, CreateBatchRequest])
   extends SessionServlet(batchManager)
@@ -44,7 +44,7 @@ class BatchSessionServlet(batchManager: SessionManager[BatchSession, CreateBatch
       } else {
         Nil
       }
-    BatchSessionView(session.id, session.state.toString, logs)
+    BatchSessionView(session.id, session.state.toString, logs, session.cluster)
   }
 
 }

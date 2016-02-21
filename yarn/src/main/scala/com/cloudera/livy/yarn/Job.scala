@@ -70,6 +70,8 @@ class Job(yarnClient: YarnClient, appId: ApplicationId) {
     None
   }
 
+  def applicationId: String = appId.toString
+
   def getHost: String = {
     val statusResponse = yarnClient.getApplicationReport(appId)
     statusResponse.getHost

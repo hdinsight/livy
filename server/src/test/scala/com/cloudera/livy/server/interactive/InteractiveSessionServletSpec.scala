@@ -40,6 +40,8 @@ class InteractiveSessionServletSpec
     .registerModule(new Json4sScalaModule())
 
   class MockInteractiveSession(id: Int, owner: String) extends InteractiveSession(id, owner) {
+    override val cluster = new ProcessClusterManagement
+
     var _state: SessionState = SessionState.Idle()
 
     var _idCounter = new AtomicInteger()

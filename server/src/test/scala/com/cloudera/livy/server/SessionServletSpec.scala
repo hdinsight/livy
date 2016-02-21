@@ -24,13 +24,14 @@ import javax.servlet.http.HttpServletResponse._
 
 import scala.concurrent.Future
 
-import com.cloudera.livy.sessions.{Session, SessionFactory, SessionManager, SessionState}
+import com.cloudera.livy.sessions._
 
 object SessionServletSpec {
 
   val REMOTE_USER_HEADER = "X-Livy-SessionServlet-User"
 
   class MockSession(id: Int, owner: String) extends Session(id, owner) {
+    override val cluster = new ProcessClusterManagement
 
     def state: SessionState = SessionState.Idle()
 
