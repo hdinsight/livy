@@ -20,13 +20,14 @@ package com.cloudera.livy.utils
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, Map}
+
+import org.apache.spark.launcher.SparkLauncher
 
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.util.LineBufferedProcess
 
 class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
-
   private[this] var _executable: String = livyConf.sparkSubmit()
   private[this] var _master: Option[String] = None
   private[this] var _deployMode: Option[String] = None
@@ -42,7 +43,7 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
   private[this] var _queue: Option[String] = None
   private[this] var _archives: ArrayBuffer[String] = ArrayBuffer()
 
-  private[this] var _env: ArrayBuffer[(String, String)] = ArrayBuffer()
+  private[this] var _env: Map[String, String] = Map()
   private[this] var _redirectOutput: Option[ProcessBuilder.Redirect] = None
   private[this] var _redirectError: Option[ProcessBuilder.Redirect] = None
   private[this] var _redirectErrorStream: Option[Boolean] = None
@@ -183,7 +184,7 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
   }
 
   def env(key: String, value: String): SparkProcessBuilder = {
-    _env += ((key, value))
+    _env += (key -> value)
     this
   }
 
@@ -203,19 +204,50 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
   }
 
   def start(file: Option[String], args: Traversable[String]): LineBufferedProcess = {
-    var arguments = ArrayBuffer(_executable)
+    val launcher: SparkLauncher = new SparkLauncher(_env.asJava)
+
+    _master.foreach(launcher.setMaster)
+    _deployMode.foreach(launcher.setDeployMode)
+    _name.foreach(launcher.setAppName)
+    _jars.foreach(launcher.addJar)
+    _pyFiles.foreach(launcher.addPyFile)
+    _files.foreach(launcher.addFile)
+    _className.foreach(launcher.setMainClass)
+    _conf.foreach { case (key, value) =>
+      launcher.setConf(key, value)
+    }
+    _driverClassPath.foreach(launcher.setConf("spark.driver.extraClassPath", _))
+
+    if (livyConf.getBoolean(LivyConf.IMPERSONATION_ENABLED)) {
+      _proxyUser.foreach(launcher.addSparkArg("--proxy-user", _))
+    }
+
+    _queue.foreach(launcher.addSparkArg("--queue", _))
+    _archives.foreach(launcher.addSparkArg("--archives", _))
+
+    launcher.setAppResource(file.getOrElse("spark-internal"))
+    launcher.addAppArgs(args.toArray: _*)
+
+    // Some customers ask for this for diagnosing issues.
+    info(s"Calling SparkLauncher ${generateSparkSubmitCmd(file, args)}")
+
+    new LineBufferedProcess(launcher.launch())
+  }
+
+  private def generateSparkSubmitCmd(file: Option[String], args: Traversable[String]): String = {
+    var cmdLine = ArrayBuffer(_executable)
 
     def addOpt(option: String, value: Option[String]): Unit = {
       value.foreach { v =>
-        arguments += option
-        arguments += v
+        cmdLine += option
+        cmdLine += v
       }
     }
 
     def addList(option: String, values: Traversable[String]): Unit = {
       if (values.nonEmpty) {
-        arguments += option
-        arguments += values.mkString(",")
+        cmdLine += option
+        cmdLine += values.mkString(",")
       }
     }
 
@@ -227,8 +259,8 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
     addList("--files", _files)
     addOpt("--class", _className)
     _conf.foreach { case (key, value) =>
-      arguments += "--conf"
-      arguments += f"$key=$value"
+      cmdLine += "--conf"
+      cmdLine += f"$key=$value"
     }
     addList("--driver-class-path", _driverClassPath)
 
@@ -239,27 +271,11 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
     addOpt("--queue", _queue)
     addList("--archives", _archives)
 
-    arguments += file.getOrElse("spark-internal")
-    arguments ++= args
+    cmdLine += file.getOrElse("spark-internal")
+    cmdLine ++= args
 
-    val argsString = arguments
+    cmdLine
       .map("'" + _.replace("'", "\\'") + "'")
       .mkString(" ")
-
-    info(s"Running $argsString")
-
-    val pb = new ProcessBuilder(arguments.asJava)
-    val env = pb.environment()
-
-    for ((key, value) <- _env) {
-      env.put(key, value)
-    }
-
-    _redirectOutput.foreach(pb.redirectOutput)
-    _redirectError.foreach(pb.redirectError)
-    _redirectErrorStream.foreach(pb.redirectErrorStream)
-
-    new LineBufferedProcess(pb.start())
   }
-
 }

@@ -217,7 +217,6 @@ class InteractiveSession(
 
     future.andThen { case r =>
       process.waitFor()
-      stdoutThread.join()
       r
     }
   }
