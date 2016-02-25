@@ -29,6 +29,7 @@ import scala.concurrent.{Future, _}
 import scala.concurrent.duration.Duration
 
 import dispatch._
+import org.apache.spark.launcher.SparkAppHandle
 import org.json4s.{DefaultFormats, Formats, JValue}
 import org.json4s.JsonAST.{JNull, JString}
 import org.json4s.jackson.Serialization.write
@@ -134,6 +135,7 @@ class InteractiveSession(
     builder.start(None, List(kind.toString))
   }
 
+  /*
   private val stdoutThread = new Thread {
     override def run() = {
       val regex = """Starting livy-repl on (https?://.*)""".r
@@ -160,8 +162,9 @@ class InteractiveSession(
   stdoutThread.setName("process session stdout reader")
   stdoutThread.setDaemon(true)
   stdoutThread.start()
+  */
 
-  override def logLines(): IndexedSeq[String] = process.inputLines
+  override def logLines(): IndexedSeq[String] = process.log
 
   override def state: SessionState = _state
 
@@ -205,12 +208,8 @@ class InteractiveSession(
             stop()
           }
         case SessionState.Error(_) | SessionState.Dead(_) | SessionState.Success(_) =>
-          if (process.isAlive) {
-            Future {
-              process.destroy()
-            }
-          } else {
-            Future.successful(Unit)
+          Future {
+            process.stop()
           }
       }
     }
@@ -219,6 +218,10 @@ class InteractiveSession(
       process.waitFor()
       r
     }
+  }
+
+  override def close(): Unit = {
+    process.close()
   }
 
   def kind: Kind = request.kind
@@ -378,15 +381,15 @@ class InteractiveSession(
 
   // Error out the job if the process errors out.
   Future {
-    if (process.waitFor() == 0) {
-      // Set the state to done if the session shut down before contacting us.
-      _state match {
-        case (SessionState.Dead(_) | SessionState.Error(_) | SessionState.Success(_)) =>
-        case _ =>
-          _state = SessionState.Success()
+    process.waitFor()
+    _state = process.state match {
+      case SparkAppHandle.State.FINISHED => SessionState.Success()
+      case SparkAppHandle.State.FAILED => SessionState.Error()
+      case SparkAppHandle.State.KILLED => SessionState.Error()
+      case _ => {
+        assert(false, s"Unexpected process state ${_state}")
+        SessionState.Error()
       }
-    } else {
-      _state = SessionState.Error()
     }
   }
 }

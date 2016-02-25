@@ -22,6 +22,8 @@ import java.lang.ProcessBuilder.Redirect
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 
+import org.apache.spark.launcher.SparkAppHandle
+
 import com.cloudera.livy.LivyConf
 import com.cloudera.livy.sessions.{Session, SessionState}
 import com.cloudera.livy.utils.SparkProcessBuilder
@@ -59,7 +61,7 @@ class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBa
 
   override def state: SessionState = _state
 
-  override def logLines(): IndexedSeq[String] = process.inputLines
+  override def logLines(): IndexedSeq[String] = process.log()
 
   override def stop(): Future[Unit] = {
     Future {
@@ -67,27 +69,28 @@ class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBa
     }
   }
 
+  override def close(): Unit = {
+    process.close()
+  }
+
   private def destroyProcess() = {
-    if (process.isAlive) {
-      process.destroy()
-      reapProcess(process.waitFor())
-    }
+    process.stop()
   }
 
-  private def reapProcess(exitCode: Int) = synchronized {
-    if (_state.isActive) {
-      if (exitCode == 0) {
-        _state = SessionState.Success()
-      } else {
-        _state = SessionState.Error()
-      }
-    }
-  }
-
+  // TODO remove thread, use a listener
   /** Simple daemon thread to make sure we change state when the process exits. */
   private[this] val thread = new Thread("Batch Process Reaper") {
     override def run(): Unit = {
-      reapProcess(process.waitFor())
+      process.waitFor()
+      _state = process.state match {
+        case SparkAppHandle.State.FINISHED => SessionState.Success()
+        case SparkAppHandle.State.FAILED => SessionState.Error()
+        case SparkAppHandle.State.KILLED => SessionState.Error()
+        case _ => {
+          assert(false, s"Unexpected process state ${process.state}")
+          SessionState.Error()
+        }
+      }
     }
   }
   thread.setDaemon(true)

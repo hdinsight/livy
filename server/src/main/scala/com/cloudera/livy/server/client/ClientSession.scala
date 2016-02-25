@@ -136,6 +136,9 @@ class ClientSession(id: Int, owner: String, createRequest: CreateClientRequest, 
     }
   }
 
+  override def close(): Unit = {
+  }
+
   // TODO: Add support for this in RSC
   override def logLines(): IndexedSeq[String] = {
     null

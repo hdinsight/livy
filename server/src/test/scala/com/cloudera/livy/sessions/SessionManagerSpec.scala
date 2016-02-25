@@ -37,6 +37,8 @@ class SessionManagerSpec extends FlatSpec with Matchers {
     override def state: SessionState = SessionState.Idle()
 
     override val timeout: Long = 0L
+
+    override def close(): Unit = { }
   }
 
   it should "garbage collect old sessions" in {

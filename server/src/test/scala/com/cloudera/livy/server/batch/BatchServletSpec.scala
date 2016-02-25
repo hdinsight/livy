@@ -38,6 +38,8 @@ class BatchServletSpec extends BaseSessionServletSpec[BatchSession] {
       writer.write(
         """
           |print "hello world"
+          |from pyspark import SparkContext
+          |sc = SparkContext("local", "BatchSessionTest")
         """.stripMargin)
     } finally {
       writer.close()

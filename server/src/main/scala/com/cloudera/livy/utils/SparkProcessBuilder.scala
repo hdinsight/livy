@@ -25,7 +25,6 @@ import scala.collection.mutable.{ArrayBuffer, Map}
 import org.apache.spark.launcher.SparkLauncher
 
 import com.cloudera.livy.{LivyConf, Logging}
-import com.cloudera.livy.util.LineBufferedProcess
 
 class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
   private[this] var _executable: String = livyConf.sparkSubmit()
@@ -203,7 +202,7 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
     this
   }
 
-  def start(file: Option[String], args: Traversable[String]): LineBufferedProcess = {
+  def start(file: Option[String], args: Traversable[String]): SparkProcess = {
     val launcher: SparkLauncher = new SparkLauncher(_env.asJava)
 
     _master.foreach(launcher.setMaster)
@@ -231,7 +230,7 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
     // Some customers ask for this for diagnosing issues.
     info(s"Calling SparkLauncher ${generateSparkSubmitCmd(file, args)}")
 
-    new LineBufferedProcess(launcher.launch())
+    new SparkProcess(launcher)
   }
 
   private def generateSparkSubmitCmd(file: Option[String], args: Traversable[String]): String = {

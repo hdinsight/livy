@@ -65,6 +65,7 @@ class SessionManager[S <: Session](val livyConf: LivyConf) extends Logging {
   def delete(session: S): Future[Unit] = {
     info(s"Deleting new session ${session.getClass.getSimpleName} ${session.id}")
     session.stop().map { case _ =>
+      session.close()
       synchronized {
         sessions.remove(session.id)
         info(s"Deleted new session ${session.getClass.getSimpleName} ${session.id}")

@@ -45,4 +45,5 @@ abstract class Session(val id: Int, val owner: String) {
 
   def logLines(): IndexedSeq[String]
 
+  def close(): Unit
 }

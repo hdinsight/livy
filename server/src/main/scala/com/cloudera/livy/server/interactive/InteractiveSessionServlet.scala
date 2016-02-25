@@ -154,4 +154,4 @@ class InteractiveSessionServlet(livyConf: LivyConf)
 
 }
 
-private case class CallbackRequest(url: String)
+case class CallbackRequest(url: String)

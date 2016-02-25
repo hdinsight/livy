@@ -36,12 +36,17 @@ class BatchSessionSpec
 
   val script: Path = {
     val script = Files.createTempFile("livy-test", ".py")
-    script.toFile.deleteOnExit()
+    // script.toFile.deleteOnExit()
     val writer = new FileWriter(script.toFile)
     try {
+      // With SparkLauncher, launched application does not connect to LauncherServer unless a
+      // SparkContext is created.
+      // TODO This doesn't work with fake spark-submit because pyspark isn't available.
       writer.write(
         """
           |print "hello world"
+          |from pyspark import SparkContext
+          |sc = SparkContext("local", "BatchSessionTest")
         """.stripMargin)
     } finally {
       writer.close()
@@ -51,13 +56,20 @@ class BatchSessionSpec
 
   describe("A Batch process") {
     it("should create a process") {
+      assume(sys.env.get("SPARK_HOME").isDefined, "SPARK_HOME is not set.")
+
       val req = new CreateBatchRequest()
       req.file = script.toString
-      req.conf = Map("spark.driver.extraClassPath" -> sys.props("java.class.path"))
+      req.conf = Map("spark.master" -> "local", "spark.driver.extraClassPath" -> sys.props("java.class.path"))
 
       val batch = new BatchSession(0, null, new LivyConf(), req)
 
-      Utils.waitUntil({ () => !batch.state.isActive }, Duration(10, TimeUnit.SECONDS))
+      Utils.waitUntil({
+          () => {
+            info(s"${batch.state}")
+            !batch.state.isActive
+          }
+        }, Duration(10, TimeUnit.SECONDS))
       (batch.state match {
         case SessionState.Success(_) => true
         case _ => false

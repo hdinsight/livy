@@ -39,6 +39,7 @@ object SessionServletSpec {
 
     def logLines(): IndexedSeq[String] = IndexedSeq("log")
 
+    def close(): Unit = { }
   }
 
   case class MockSessionView(id: Int, owner: String, logs: Seq[String])
