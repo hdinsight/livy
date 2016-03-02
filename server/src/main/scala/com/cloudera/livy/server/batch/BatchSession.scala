@@ -19,21 +19,49 @@
 package com.cloudera.livy.server.batch
 
 import java.lang.ProcessBuilder.Redirect
+import java.util.UUID
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 
 import com.cloudera.livy.LivyConf
+import com.cloudera.livy.recovery.{RecoverableSession, SessionStore}
 import com.cloudera.livy.sessions.{Session, SessionState}
-import com.cloudera.livy.utils.SparkProcessBuilder
+import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
 
-class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBatchRequest)
-    extends Session(id, owner) {
+object BatchSession {
+  def create(
+      id: Int,
+      owner: String,
+      request: CreateBatchRequest,
+      sessionStore: SessionStore,
+      livyConf: LivyConf): BatchSession = {
+    val builder = buildRequest(request, livyConf)
+    val create = { (s: BatchSession) =>
+      SparkApp.create(s.uuid, builder, Option(request.file), request.args, livyConf, Option(s))
+    }
+    new BatchSession(id, UUID.randomUUID().toString, owner, sessionStore, create, livyConf)
+  }
 
-  private val process = {
+  def recover(
+      id: Int,
+      uuid: String,
+      appId: Option[String],
+      owner: String,
+      sessionStore: SessionStore,
+      livyConf: LivyConf): BatchSession = {
+    val recover = { (s: BatchSession) =>
+      SparkApp.recover(uuid, appId, livyConf, Option(s))
+    }
+    new BatchSession(id, uuid, owner, sessionStore, recover, livyConf, appId)
+  }
+
+  private[this] def buildRequest(request: CreateBatchRequest, livyConf: LivyConf) = {
     require(request.file != null, "File is required.")
 
     val builder = new SparkProcessBuilder(livyConf)
     builder.conf(request.conf)
+    builder.master(livyConf.sparkMaster)
+    builder.deployMode(livyConf.sparkDeployMode)
     request.proxyUser.foreach(builder.proxyUser)
     request.className.foreach(builder.className)
     request.jars.foreach(builder.jar)
@@ -49,9 +77,21 @@ class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBa
     request.name.foreach(builder.name)
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
-
-    builder.start(Some(request.file), request.args)
   }
+}
+
+class BatchSession private (
+    id: Int,
+    uuid: String,
+    owner: String,
+    val sessionStore: SessionStore,
+    appCreator: (BatchSession) => SparkApp,
+    livyConf: LivyConf,
+    appId: Option[String] = None)
+  extends Session(id, owner, uuid, appId)
+  with RecoverableSession {
+
+  private val app = appCreator(this)
 
   protected implicit def executor: ExecutionContextExecutor = ExecutionContext.global
 
@@ -59,7 +99,7 @@ class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBa
 
   override def state: SessionState = _state
 
-  override def logLines(): IndexedSeq[String] = process.inputLines
+  override def logLines(): IndexedSeq[String] = app.log
 
   override def stop(): Future[Unit] = {
     Future {
@@ -68,28 +108,20 @@ class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBa
   }
 
   private def destroyProcess() = {
-    if (process.isAlive) {
-      process.destroy()
-      reapProcess(process.waitFor())
-    }
+    app.stop()
+    app.waitFor()
   }
 
-  private def reapProcess(exitCode: Int) = synchronized {
-    if (_state.isActive) {
-      if (exitCode == 0) {
-        _state = SessionState.Success()
-      } else {
-        _state = SessionState.Error()
+  /** Fired when the app state in the cluster changes. */
+  override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {
+    synchronized {
+      newState match {
+        case SparkApp.State.FINISHED =>
+          _state = SessionState.Success()
+        case SparkApp.State.KILLED | SparkApp.State.FAILED =>
+          _state = SessionState.Dead()
+        case _ =>
       }
     }
   }
-
-  /** Simple daemon thread to make sure we change state when the process exits. */
-  private[this] val thread = new Thread("Batch Process Reaper") {
-    override def run(): Unit = {
-      reapProcess(process.waitFor())
-    }
-  }
-  thread.setDaemon(true)
-  thread.start()
 }

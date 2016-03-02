@@ -25,16 +25,20 @@ import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 
 import com.cloudera.livy.{LivyConf, Logging}
+import com.cloudera.livy.recovery.SessionStore
 
 object SessionManager {
   val SESSION_TIMEOUT = LivyConf.Entry("livy.server.session.timeout", "1h")
 }
 
-class SessionManager[S <: Session](val livyConf: LivyConf) extends Logging {
+class SessionManager[S <: Session](
+    livyConf: LivyConf,
+    sessionStore: Option[SessionStore] = None,
+    startingId: Int = 0) extends Logging {
 
   private implicit def executor: ExecutionContext = ExecutionContext.global
 
-  private[this] final val idCounter = new AtomicInteger()
+  private[this] final val idCounter = new AtomicInteger(startingId)
   private[this] final val sessions = mutable.Map[Int, S]()
 
   private[this] final val sessionTimeout =
@@ -66,6 +70,7 @@ class SessionManager[S <: Session](val livyConf: LivyConf) extends Logging {
     info(s"Deleting new session ${session.getClass.getSimpleName} ${session.id}")
     session.stop().map { case _ =>
       synchronized {
+        sessionStore.foreach(_.remove(session))
         sessions.remove(session.id)
         info(s"Deleted new session ${session.getClass.getSimpleName} ${session.id}")
       }
