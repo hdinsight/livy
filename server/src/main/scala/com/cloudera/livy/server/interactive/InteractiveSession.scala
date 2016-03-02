@@ -36,7 +36,7 @@ import org.json4s.jackson.Serialization.write
 import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging, Utils}
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
-import com.cloudera.livy.utils.SparkProcessBuilder
+import com.cloudera.livy.utils.{SparkApplication, SparkProcessBuilder}
 
 object InteractiveSession {
   val LivyReplAdditionalFiles = "livy.repl.additional.files"
@@ -73,6 +73,8 @@ class InteractiveSession(
     val builder = new SparkProcessBuilder(livyConf)
     builder.className("com.cloudera.livy.repl.Main")
     builder.conf(request.conf)
+    builder.master(livyConf.sparkMaster)
+    builder.deployMode(livyConf.sparkDeployMode)
     request.archives.foreach(builder.archive)
     request.driverCores.foreach(builder.driverCores)
     request.driverMemory.foreach(builder.driverMemory)
@@ -131,10 +133,10 @@ class InteractiveSession(
 
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
-    builder.start(None, List(kind.toString))
+    SparkApplication.create(builder, None, List(kind.toString), livyConf)
   }
 
-  override def logLines(): IndexedSeq[String] = process.inputLines
+  override def logLines(): IndexedSeq[String] = process.log
 
   override def state: SessionState = _state
 
@@ -178,11 +180,8 @@ class InteractiveSession(
             stop()
           }
         case SessionState.Error(_) | SessionState.Dead(_) | SessionState.Success(_) =>
-          if (process.isAlive) {
-            Future {
-              process.destroy()
-            }
-          } else {
+          Future {
+            process.stop()
             Future.successful(Unit)
           }
       }

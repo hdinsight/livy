@@ -41,6 +41,8 @@ object LivyConf {
   val SESSION_FACTORY = Entry("livy.server.session.factory", "process")
   val SPARK_HOME = Entry("livy.server.spark-home", null)
   val SPARK_SUBMIT_KEY = Entry("livy.server.spark-submit", null)
+  val SPARK_MASTER_KEY = Entry("livy.server.master", "local")
+  val SPARK_DEPLOY_MODE_KEY = Entry("livy.server.deployMode", "client")
   val IMPERSONATION_ENABLED = Entry("livy.impersonation.enabled", false)
   val LIVY_HOME = Entry("livy.home", null)
   val FILE_UPLOAD_MAX_SIZE = Entry("livy.file.upload.max.size", 100L * 1024 * 1024)
@@ -73,6 +75,11 @@ class LivyConf(loadDefaults: Boolean) extends ClientConf[LivyConf](null) {
     this
   }
 
+  /** Return true if spark.master is set to YARN */
+  def isSparkMasterYarn: Boolean = {
+    sparkMaster.startsWith("yarn")
+  }
+
   /** Return the location of the spark home directory */
   def sparkHome(): Option[String] = Option(get(SPARK_HOME)).orElse(sys.env.get("SPARK_HOME"))
 
@@ -91,6 +98,16 @@ class LivyConf(loadDefaults: Boolean) extends ClientConf[LivyConf](null) {
     Option(get(SPARK_SUBMIT_KEY))
       .orElse { sparkHome().map { _ + File.separator + "bin" + File.separator + "spark-submit" } }
       .getOrElse("spark-submit")
+  }
+
+  /** Return spark.master Livy should use. */
+  def sparkMaster: String = {
+    get(SPARK_MASTER_KEY)
+  }
+
+  /** Return Spark deploy mode Livy should use. */
+  def sparkDeployMode: String = {
+    get(SPARK_DEPLOY_MODE_KEY)
   }
 
   /** Return the path where request log should be storeed. None if it's disabled */
