@@ -25,11 +25,11 @@ import java.util.concurrent.TimeUnit
 import scala.concurrent.duration.Duration
 
 import com.cloudera.livy.{LivyConf, Utils}
+import com.cloudera.livy.recovery.{SessionStore, StateStore}
 import com.cloudera.livy.server.BaseSessionServletSpec
-import com.cloudera.livy.sessions.SessionState
+import com.cloudera.livy.sessions.{SessionManager, SessionState}
 
 class BatchServletSpec extends BaseSessionServletSpec[BatchSession] {
-
   val script: Path = {
     val script = Files.createTempFile("livy-test", ".py")
     script.toFile.deleteOnExit()
@@ -45,7 +45,15 @@ class BatchServletSpec extends BaseSessionServletSpec[BatchSession] {
     script
   }
 
-  override def createServlet(): BatchSessionServlet = new BatchSessionServlet(new LivyConf())
+  override def createServlet(): BatchSessionServlet = {
+    val livyConf = new LivyConf()
+    StateStore.init(livyConf)
+    val sessionStore = new SessionStore(livyConf)
+    new BatchSessionServlet(
+      new SessionManager[BatchSession](livyConf, Some(sessionStore)),
+      sessionStore,
+      livyConf)
+  }
 
   describe("Batch Servlet") {
     it("should create and tear down a batch") {

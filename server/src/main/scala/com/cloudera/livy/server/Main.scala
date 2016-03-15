@@ -22,6 +22,9 @@ import java.io.{File, IOException}
 import java.util.EnumSet
 import javax.servlet._
 
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
+
 import org.apache.hadoop.security.authentication.server._
 import org.eclipse.jetty.servlet.FilterHolder
 import org.scalatra.metrics.MetricsBootstrap
@@ -29,10 +32,12 @@ import org.scalatra.metrics.MetricsSupportExtensions._
 import org.scalatra.servlet.ServletApiImplicits
 
 import com.cloudera.livy._
+import com.cloudera.livy.recovery.{SessionRecovery, SessionStore, StateStore}
 import com.cloudera.livy.server.batch.BatchSessionServlet
 import com.cloudera.livy.server.client.ClientSessionServlet
 import com.cloudera.livy.server.interactive.InteractiveSessionServlet
 import com.cloudera.livy.util.LineBufferedProcess
+import com.cloudera.livy.utils.SparkYarnApplication
 
 object Main extends Logging {
 
@@ -50,11 +55,22 @@ object Main extends Logging {
     val host = livyConf.get(SERVER_HOST)
     val port = livyConf.getInt(SERVER_PORT)
 
+    StateStore.init(livyConf)
+    Future {
+      // Preload YarnClient
+      info("Yarn Client creating...")
+      SparkYarnApplication.getYarnClient()
+      info("Yarn Client created.")
+    }
+
     // Make sure the `spark-submit` program exists, otherwise much of livy won't work.
     testSparkHome(livyConf)
     testSparkSubmit(livyConf)
 
     val server = new WebServer(livyConf, host, port)
+    val sessionStore = new SessionStore(livyConf)
+    val sessionRecovery = new SessionRecovery(sessionStore, livyConf)
+    val batchSessionManager = sessionRecovery.recover()
 
     server.context.setResourceBase("src/main/com/cloudera/livy/server")
     server.context.addEventListener(
@@ -69,7 +85,8 @@ object Main extends Logging {
             val context = sce.getServletContext()
             context.initParameters(org.scalatra.EnvironmentKey) = livyConf.get(ENVIRONMENT)
             context.mount(new InteractiveSessionServlet(livyConf), "/sessions/*")
-            context.mount(new BatchSessionServlet(livyConf), "/batches/*")
+            context.mount(new BatchSessionServlet(batchSessionManager, sessionStore, livyConf),
+              "/batches/*")
             context.mount(new ClientSessionServlet(livyConf), "/clients/*")
             context.mountMetricsAdminServlet("/")
           } catch {

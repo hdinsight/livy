@@ -21,17 +21,26 @@ package com.cloudera.livy.server.batch
 import javax.servlet.http.HttpServletRequest
 
 import com.cloudera.livy.LivyConf
+import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.server.SessionServlet
+import com.cloudera.livy.sessions.SessionManager
 
 case class BatchSessionView(id: Long, state: String, log: Seq[String])
 
-class BatchSessionServlet(livyConf: LivyConf)
-  extends SessionServlet[BatchSession](livyConf)
+class BatchSessionServlet(
+    sessionManager: SessionManager[BatchSession],
+    sessionStore: SessionStore,
+    livyConf: LivyConf)
+  extends SessionServlet[BatchSession](livyConf, sessionManager)
 {
-
   override protected def createSession(req: HttpServletRequest): BatchSession = {
     val createRequest = bodyAs[CreateBatchRequest](req)
-    new BatchSession(sessionManager.nextId(), remoteUser(req), livyConf, createRequest)
+    BatchSession.create(
+      sessionManager.nextId(),
+      remoteUser(req),
+      livyConf,
+      createRequest,
+      sessionStore)
   }
 
   override protected def clientSessionView(session: BatchSession, req: HttpServletRequest): Any = {
@@ -49,5 +58,4 @@ class BatchSessionServlet(livyConf: LivyConf)
       }
     BatchSessionView(session.id, session.state.toString, logs)
   }
-
 }

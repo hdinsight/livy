@@ -27,6 +27,7 @@ import scala.concurrent.duration.Duration
 import org.scalatest.{BeforeAndAfterAll, FunSpec, ShouldMatchers}
 
 import com.cloudera.livy.{LivyConf, Utils}
+import com.cloudera.livy.recovery.{SessionStore, StateStore}
 import com.cloudera.livy.sessions.SessionState
 
 class BatchSessionSpec
@@ -51,11 +52,18 @@ class BatchSessionSpec
 
   describe("A Batch process") {
     it("should create a process") {
+      val livyConf = new LivyConf()
+      StateStore.init(livyConf)
+
       val req = new CreateBatchRequest()
       req.file = script.toString
       req.conf = Map("spark.driver.extraClassPath" -> sys.props("java.class.path"))
-
-      val batch = new BatchSession(0, null, new LivyConf(), req)
+      val batch = BatchSession.create(
+        0,
+        null,
+        livyConf,
+        req,
+        new SessionStore(livyConf))
 
       Utils.waitUntil({ () => !batch.state.isActive }, Duration(10, TimeUnit.SECONDS))
       (batch.state match {

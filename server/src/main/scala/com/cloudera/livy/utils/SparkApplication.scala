@@ -18,7 +18,8 @@
 
 package com.cloudera.livy.utils
 
-import java.util.UUID
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 
 import com.cloudera.livy.{LivyConf, Logging}
 
@@ -26,19 +27,60 @@ import com.cloudera.livy.{LivyConf, Logging}
  * Provide factory methods for SparkApplication.
  */
 object SparkApplication extends Logging {
+  /**
+   * Call this to create a new Spark application.
+   * It also automatically configure YARN configurations if necessary.
+   *
+   * @param builder
+   * @param file
+   * @param args
+   * @param applicationTag
+   * @param livyConf
+   * @param applicationIdRetrieved
+   * @return
+   */
   def create(
       builder: SparkProcessBuilder,
       file: Option[String],
       args: List[String],
-      livyConf: LivyConf): SparkApplication = {
+      livyConf: LivyConf,
+      applicationTag: String,
+      applicationIdRetrieved: (String, String) => Unit = (_, _) => {})
+    : SparkApplication = {
     if (livyConf.isSparkMasterYarn) {
-      val applicationTag = s"livy_${UUID.randomUUID()}"
       builder.conf("spark.yarn.tags", applicationTag)
       builder.conf("spark.yarn.maxAppAttempts", "1")
+
       val process = builder.start(file, args)
-      new SparkYarnApplication(applicationTag, Option(process))
+      new SparkYarnApplication(
+        applicationTag,
+        Option(process),
+        applicationIdRetrieved(applicationTag, _: String))
     } else {
       new SparkLocalApplication(builder.start(file, args))
+    }
+  }
+
+  /**
+   * Call this to recover an existing Spark application.
+   * It needs an handle to the existing application, which could be a YARN app tag or an app id.
+   * It only works on YARN.
+   *
+   * @param clusterAppTag
+   * @param clusterAppId
+   * @param livyConf
+   * @return
+   */
+  def recover(
+    clusterAppTag: String,
+    clusterAppId: Option[String],
+    livyConf: LivyConf): SparkApplication = {
+    assert(livyConf.isSparkMasterYarn, "Recovery is only supported on YARN.")
+
+    clusterAppId match {
+      case None => new SparkYarnApplication(clusterAppTag)
+      case Some(clusterAppId: String) =>
+        new SparkYarnApplication(Future { SparkYarnApplication.parseApplicationId(clusterAppId) })
     }
   }
 }

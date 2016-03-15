@@ -17,8 +17,6 @@
  */
 package com.cloudera.livy.recovery
 
-import scala.util.control.Exception.handling
-
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.server.batch.BatchSession
 import com.cloudera.livy.sessions.Session
@@ -77,10 +75,13 @@ class SessionStore(livyConf: LivyConf) extends Logging {
   def getAllSessions(sessionType: SessionType): Seq[SessionMetadata] = {
     store.getChildren(sessionType.toString).flatMap { childKey =>
       val sessionKey = s"$storeVersion/$sessionType/$childKey"
-      handling(classOf[Exception]) by { e =>
-        error(s"Error occurred while retrieving session $sessionKey", e)
-        None
-      } apply store.get(sessionKey, classOf[SessionMetadata])
+      try {
+        store.get(sessionKey, classOf[SessionMetadata])
+      } catch {
+        case e: Exception =>
+          warn(s"Ignoring corrupted session metadata $sessionKey.", e)
+          None
+      }
     }
   }
 

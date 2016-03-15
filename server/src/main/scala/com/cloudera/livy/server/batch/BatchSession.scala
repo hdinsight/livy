@@ -19,17 +19,22 @@
 package com.cloudera.livy.server.batch
 
 import java.lang.ProcessBuilder.Redirect
+import java.util.UUID
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 
 import com.cloudera.livy.LivyConf
+import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.sessions.{Session, SessionState}
 import com.cloudera.livy.utils.{SparkApplication, SparkProcessBuilder}
 
-class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBatchRequest)
-    extends Session(id, owner) {
-
-  private val process = {
+object BatchSession {
+  def create(
+      id: Int,
+      owner: String,
+      livyConf: LivyConf,
+      request: CreateBatchRequest,
+      sessionStore: SessionStore): BatchSession = {
     require(request.file != null, "File is required.")
 
     val builder = new SparkProcessBuilder(livyConf)
@@ -52,8 +57,43 @@ class BatchSession(id: Int, owner: String, livyConf: LivyConf, request: CreateBa
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
 
-    SparkApplication.create(builder, Some(request.file), request.args, livyConf)
+    val applicationTag = s"livy_${UUID.randomUUID()}"
+
+    new BatchSession(id, owner, livyConf, session => {
+      sessionStore.set(session, applicationTag, None)
+
+      SparkApplication.create(
+        builder,
+        Some(request.file),
+        request.args,
+        livyConf,
+        applicationTag,
+        (clusterAppTag: String, clusterAppId: String) => {
+          sessionStore.set(session, clusterAppTag, Option(clusterAppId))
+        })
+    })
   }
+
+  def recover(
+      id: Int,
+      clusterAppTag: String,
+      clusterAppId: Option[String],
+      owner: String,
+      livyConf: LivyConf): BatchSession = {
+    new BatchSession(id, owner, livyConf, _ => {
+      SparkApplication.recover(clusterAppTag, clusterAppId, livyConf)
+    })
+  }
+}
+
+class BatchSession private (
+    id: Int,
+    owner: String,
+    livyConf: LivyConf,
+    processCreator: (Session) => SparkApplication)
+  extends Session(id, owner) {
+
+  private val process = processCreator(this)
 
   protected implicit def executor: ExecutionContextExecutor = ExecutionContext.global
 

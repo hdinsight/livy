@@ -22,6 +22,7 @@ import java.io.File
 import java.lang.ProcessBuilder.Redirect
 import java.net.{ConnectException, URL}
 import java.nio.file.{Files, Paths}
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import scala.annotation.tailrec
@@ -133,7 +134,9 @@ class InteractiveSession(
 
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
-    SparkApplication.create(builder, None, List(kind.toString), livyConf)
+
+    val applicationTag = s"livy_${UUID.randomUUID()}"
+    SparkApplication.create(builder, None, List(kind.toString), livyConf, applicationTag)
   }
 
   override def logLines(): IndexedSeq[String] = process.log
