@@ -25,6 +25,7 @@ import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration.Duration
+import scala.util.control.Exception._
 
 object Utils {
   def getPropertiesFromFile(file: File): Map[String, String] = {
@@ -94,5 +95,15 @@ object Utils {
         true
     }
   }
+
+  /**
+   * An exception handler similar to Exception.failing, which returns None on exception.
+   * In addition, this handler logs the exception.
+   * @param msg Error message for logging.
+   * @param log The logging method.
+   * @tparam T Return type for happy path.
+   */
+  def failWithLogging[T](msg: String, log: ( => Any, Throwable) => Unit): Catch[Option[T]] =
+    handling(classOf[Exception]) by (e => { log(msg, e); None })
 
 }

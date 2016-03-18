@@ -22,13 +22,16 @@ import com.fasterxml.jackson.module.scala.DefaultScalaModule
 
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.LivyConf.Entry
+import com.cloudera.livy.sessions.SessionKindModule
 
 trait StateStoreCompanion {
   def create(livyConf: LivyConf): StateStore
 }
 
 protected trait JsonMapper {
-  protected val mapper = new ObjectMapper().registerModule(DefaultScalaModule)
+  protected val mapper = new ObjectMapper()
+    .registerModule(DefaultScalaModule)
+    .registerModule(new SessionKindModule())
 
   def serialize(value: Object): String = mapper.writeValueAsString(value)
 

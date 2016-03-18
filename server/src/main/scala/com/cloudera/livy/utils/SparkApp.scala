@@ -34,18 +34,21 @@ trait SparkAppListener {
   def appIdKnown(appId: String): Unit
 
   /** Fired when the app state in the cluster changes. */
-  def stateChanged(oldState: SparkApp.State.Value, newState: SparkApp.State.Value): Unit
+  def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit
 }
 
 /**
- * Provide factory methods for SparkApplication.
+ * Provide factory methods for SparkApp.
  */
 object SparkApp extends Logging {
   import SparkYarnApp.getAppIdFromTagAsync
 
+  // This class looks quite similar to SparkLauncher. Consider adding recovery to SparkLauncher.
   object State extends Enumeration {
     val STARTING, RUNNING, FINISHED, FAILED, KILLED = Value
   }
+  type State = State.Value
+
   /**
    * Call this to create a new Spark application.
    * It also automatically configure YARN configurations if necessary.
@@ -72,13 +75,8 @@ object SparkApp extends Logging {
 
   /**
    * Call this to recover an existing Spark application.
-   * It needs an handle to the existing application, which could be a YARN app tag or an app id.
-   * It only works on YARN.
-   *
-   * @param appTag
-   * @param appId
-   * @param livyConf
-   * @return
+   * It needs an handle to the existing application, which could be a session uuid or an app id.
+   * It works only on YARN.
    */
   def recover(
       uuid: String,
@@ -100,7 +98,6 @@ object SparkApp extends Logging {
 
 /**
  * Encapsulate a Spark application.
- * It provides state tracking & logging.
  */
 abstract class SparkApp() {
   def stop(): Unit

@@ -31,16 +31,20 @@ import org.mockito.invocation.InvocationOnMock
 import org.mockito.stubbing.Answer
 
 import com.cloudera.livy.{ExecuteRequest, LivyConf}
+import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.server.BaseSessionServletSpec
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
 
 class InteractiveSessionServletSpec extends BaseSessionServletSpec[InteractiveSession] {
 
-  mapper.registerModule(new SessionKindModule())
-    .registerModule(new Json4sScalaModule())
+  mapper.registerModule(new SessionKindModule()).registerModule(new Json4sScalaModule())
 
-  class MockInteractiveSessionServlet extends InteractiveSessionServlet(new LivyConf()) {
+  class MockInteractiveSessionServlet(livyConf: LivyConf, sessionStore: SessionStore)
+    extends InteractiveSessionServlet(
+      new SessionManager[InteractiveSession](livyConf, Some(sessionStore)),
+      sessionStore,
+      livyConf) {
 
     private var statements = IndexedSeq[Statement]()
 
@@ -77,7 +81,10 @@ class InteractiveSessionServletSpec extends BaseSessionServletSpec[InteractiveSe
 
   }
 
-  override def createServlet(): InteractiveSessionServlet = new MockInteractiveSessionServlet()
+  override def createServlet(): InteractiveSessionServlet = {
+    val livyConf = new LivyConf()
+    new MockInteractiveSessionServlet(livyConf, new SessionStore(livyConf))
+  }
 
   it("should setup and tear down an interactive session") {
     jget[Map[String, Any]]("/") { data =>

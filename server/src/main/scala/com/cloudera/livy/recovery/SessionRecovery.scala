@@ -18,30 +18,50 @@
 package com.cloudera.livy.recovery
 
 import com.cloudera.livy.{LivyConf, Logging}
+import com.cloudera.livy.Utils.failWithLogging
 import com.cloudera.livy.server.batch.BatchSession
-import com.cloudera.livy.sessions.SessionManager
+import com.cloudera.livy.server.interactive.InteractiveSession
+import com.cloudera.livy.sessions.{Session, SessionManager}
 
 class SessionRecovery(sessionStore: SessionStore, livyConf: LivyConf) extends Logging {
-  def recover(): SessionManager[BatchSession] = {
-    val storedSessions = sessionStore.getAllSessions(SessionType.Batch)
-    val recoveredSessions = storedSessions.map { storedSession =>
-      BatchSession.recover(
-        storedSession.id,
-        storedSession.uuid,
-        storedSession.appId,
-        storedSession.owner,
-        sessionStore,
-        livyConf)
-    }
+  def recover(): (SessionManager[BatchSession], SessionManager[InteractiveSession]) = {
+    val batchSessionManager = recoverSessions[BatchSession](
+      SessionType.Batch, { s =>
+        failWithLogging(s"Failed to recover batch session $s", error) {
+          Option(BatchSession.recover(s.id, s.uuid, s.appId, s.owner, sessionStore, livyConf))
+        }
+      })
 
-    val nextSessionId = sessionStore.getNextSessionId(SessionType.Batch)
-    val batchSessionManager = new SessionManager[BatchSession](
+    val interactiveSessionManager = recoverSessions[InteractiveSession](
+      SessionType.Interactive, { s =>
+        failWithLogging(s"Failed to recover batch session $s", error) {
+          require(s.interactive.isDefined, s"Missing interactive metadata in session $s")
+          val i = s.interactive.get
+          Option(InteractiveSession.recover(
+            s.id, s.uuid, s.appId, s.owner, i.kind, i.proxyUser, i.replUrl, sessionStore, livyConf))
+        }
+      }
+    )
+
+    (batchSessionManager, interactiveSessionManager)
+  }
+
+  private def recoverSessions[S<: Session](
+      sessionType: SessionType.Value,
+      recoveryStep: (SessionMetadata => Option[S])): SessionManager[S] = {
+    val storedSessions = sessionStore.getAllSessions(sessionType)
+    val nextSessionId = sessionStore.getNextSessionId(sessionType)
+
+    val recoveredSessions = storedSessions.flatMap(recoveryStep(_))
+
+    val sessionManager = new SessionManager[S](
       livyConf,
       Option(sessionStore),
       nextSessionId)
-    recoveredSessions.foreach(batchSessionManager.register)
-    info(s"Recovered ${recoveredSessions.length} batch sessions. Next session id: $nextSessionId")
+    recoveredSessions.foreach(sessionManager.register)
+    info(s"Recovered ${recoveredSessions.length} $sessionType sessions." +
+      s" Next session id: $nextSessionId")
 
-    batchSessionManager
+    sessionManager
   }
 }

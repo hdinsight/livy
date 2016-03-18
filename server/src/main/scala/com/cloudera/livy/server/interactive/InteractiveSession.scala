@@ -26,6 +26,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import scala.annotation.tailrec
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Future, _}
 import scala.concurrent.duration.Duration
 
@@ -35,6 +36,7 @@ import org.json4s.JsonAST.{JNull, JString}
 import org.json4s.jackson.Serialization.write
 
 import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging, Utils}
+import com.cloudera.livy.recovery.{RecoverableSession, SessionStore}
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
 import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
@@ -49,28 +51,46 @@ object InteractiveSession {
   val SparkLivyPort = "spark.livy.port"
   val SparkSubmitPyFiles = "spark.submit.pyFiles"
   val SparkYarnIsPython = "spark.yarn.isPython"
-}
 
-class InteractiveSession(
+  def create(
+      id: Int,
+      owner: String,
+      livyConf: LivyConf,
+      request: CreateInteractiveRequest,
+      sessionStore: SessionStore): InteractiveSession = {
+    val builder: SparkProcessBuilder = buildRequest(id, livyConf, request)
+    val kind = request.kind
+
+    val create = { (s: InteractiveSession) =>
+      SparkApp.create(s.uuid, builder, None, List(kind.toString), livyConf, Option(s))
+    }
+
+    val uuid = UUID.randomUUID().toString
+    val proxyUser = request.proxyUser
+    new InteractiveSession(id, uuid, owner, kind, proxyUser, create, sessionStore, livyConf, false)
+  }
+
+  def recover(
+      id: Int,
+      uuid: String,
+      appId: Option[String],
+      owner: String,
+      kind: Kind,
+      proxyUser: Option[String],
+      replUrl: Option[URL],
+      sessionStore: SessionStore,
+      livyConf: LivyConf): InteractiveSession = {
+    val recover = { (s: InteractiveSession) =>
+      SparkApp.recover(uuid, appId, livyConf, Option(s))
+    }
+    new InteractiveSession(
+      id, uuid, owner, kind, proxyUser, recover, sessionStore, livyConf, true, appId, replUrl)
+  }
+
+  private[this] def buildRequest(
     id: Int,
-    owner: String,
     livyConf: LivyConf,
-    request: CreateInteractiveRequest)
-  extends Session(id, owner) with Logging {
-
-  import InteractiveSession._
-
-  protected implicit def executor: ExecutionContextExecutor = ExecutionContext.global
-  protected implicit def jsonFormats: Formats = DefaultFormats
-
-  protected[this] var _state: SessionState = SessionState.Starting()
-
-  private[this] var _url: Option[URL] = None
-
-  private[this] var _executedStatements = 0
-  private[this] var _statements = IndexedSeq[Statement]()
-
-  private val process = {
+    request: CreateInteractiveRequest): SparkProcessBuilder = {
     val builder = new SparkProcessBuilder(livyConf)
     builder.className("com.cloudera.livy.repl.Main")
     builder.conf(request.conf)
@@ -134,11 +154,71 @@ class InteractiveSession(
 
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
-
-    SparkApp.create("", builder, None, List(kind.toString), livyConf, None)
   }
 
-  override def logLines(): IndexedSeq[String] = process.log
+  private[this] def livyJars(livyConf: LivyConf): Seq[String] = {
+    Option(livyConf.get(LivyReplJars)).map(_.split(",").toSeq).getOrElse {
+      val home = sys.env("LIVY_HOME")
+      val jars = Option(new File(home, "repl-jars"))
+        .filter(_.isDirectory())
+        .getOrElse(new File(home, "repl/target/jars"))
+      require(jars.isDirectory(), "Cannot find Livy REPL jars.")
+      jars.listFiles().map(_.getAbsolutePath()).toSeq
+    }
+  }
+
+  private[this] def findPySparkArchives(): Seq[String] = {
+    sys.env.get("PYSPARK_ARCHIVES_PATH")
+      .map(_.split(",").toSeq)
+      .getOrElse {
+        sys.env.get("SPARK_HOME") .map { case sparkHome =>
+          val pyLibPath = Seq(sparkHome, "python", "lib").mkString(File.separator)
+          val pyArchivesFile = new File(pyLibPath, "pyspark.zip")
+          require(pyArchivesFile.exists(),
+            "pyspark.zip not found; cannot run pyspark application in YARN mode.")
+
+          val py4jFile = Files.newDirectoryStream(Paths.get(pyLibPath), "py4j-*-src.zip")
+            .iterator()
+            .next()
+            .toFile
+
+          require(py4jFile.exists(),
+            "py4j-*-src.zip not found; cannot run pyspark application in YARN mode.")
+          Seq(pyArchivesFile.getAbsolutePath, py4jFile.getAbsolutePath)
+        }.getOrElse(Seq())
+      }
+  }
+}
+
+class InteractiveSession private (
+    id: Int,
+    uuid: String,
+    owner: String,
+    val kind: Kind,
+    val proxyUser: Option[String],
+    appCreator: (InteractiveSession) => SparkApp,
+    val sessionStore: SessionStore,
+    livyConf: LivyConf,
+    recovery: Boolean,
+    appId: Option[String] = None,
+    private[this] var _url: Option[URL] = None)
+  extends Session(id, owner, uuid, appId)
+  with RecoverableSession
+  with Logging {
+
+  private val app = appCreator(this)
+
+  // FIXME Use a separate pool.
+  protected implicit def executor: ExecutionContextExecutor = ExecutionContext.global
+  protected implicit def jsonFormats: Formats = DefaultFormats
+
+  protected[this] var _state: SessionState = SessionState.Starting()
+
+  private[this] var _executedStatements = 0
+  private[this] var _statements = IndexedSeq[Statement]()
+  private var serverSideLog = ArrayBuffer.empty[String]
+
+  override def logLines(): IndexedSeq[String] = app.log ++ serverSideLog
 
   override def state: SessionState = _state
 
@@ -183,28 +263,25 @@ class InteractiveSession(
           }
         case SessionState.Error(_) | SessionState.Dead(_) | SessionState.Success(_) =>
           Future {
-            process.stop()
+            app.stop()
             Future.successful(Unit)
           }
       }
     }
 
     future.andThen { case r =>
-      process.waitFor()
+      app.waitFor()
       r
     }
   }
-
-  def kind: Kind = request.kind
-
-  def proxyUser: Option[String] = request.proxyUser
 
   def url: Option[URL] = _url
 
   def url_=(url: URL): Unit = {
     ensureState(SessionState.Starting(), {
       _state = SessionState.Idle()
-      _url = Some(url)
+      _url = Option(url)
+      sessionStore.set(this)
     })
   }
 
@@ -291,40 +368,6 @@ class InteractiveSession(
     }
   }
 
-  private def livyJars(livyConf: LivyConf): Seq[String] = {
-    Option(livyConf.get(LivyReplJars)).map(_.split(",").toSeq).getOrElse {
-      val home = sys.env("LIVY_HOME")
-      val jars = Option(new File(home, "repl-jars"))
-        .filter(_.isDirectory())
-        .getOrElse(new File(home, "repl/target/jars"))
-      require(jars.isDirectory(), "Cannot find Livy REPL jars.")
-      jars.listFiles().map(_.getAbsolutePath()).toSeq
-    }
-  }
-
-  private def findPySparkArchives(): Seq[String] = {
-    sys.env.get("PYSPARK_ARCHIVES_PATH")
-      .map(_.split(",").toSeq)
-      .getOrElse {
-        sys.env.get("SPARK_HOME") .map { case sparkHome =>
-          val pyLibPath = Seq(sparkHome, "python", "lib").mkString(File.separator)
-          val pyArchivesFile = new File(pyLibPath, "pyspark.zip")
-          require(pyArchivesFile.exists(),
-            "pyspark.zip not found; cannot run pyspark application in YARN mode.")
-
-          val py4jFile = Files.newDirectoryStream(Paths.get(pyLibPath), "py4j-*-src.zip")
-            .iterator()
-            .next()
-            .toFile
-
-          require(py4jFile.exists(),
-            "py4j-*-src.zip not found; cannot run pyspark application in YARN mode.")
-          Seq(pyArchivesFile.getAbsolutePath, py4jFile.getAbsolutePath)
-        }.getOrElse(Seq())
-      }
-  }
-
-
   private def transition(state: SessionState) = synchronized {
     _state = state
   }
@@ -349,18 +392,25 @@ class InteractiveSession(
       }
     }
   }
+  
+  override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {
+    // Error out the job if the app errors out.
+    newState match {
+      case SparkApp.State.FINISHED =>
+        _state = SessionState.Success()
+      case SparkApp.State.KILLED | SparkApp.State.FAILED =>
+        _state = SessionState.Dead()
+      case _ =>
+    }
+  }
 
-  // Error out the job if the process errors out.
-  Future {
-    if (process.waitFor() == 0) {
-      // Set the state to done if the session shut down before contacting us.
-      _state match {
-        case (SessionState.Dead(_) | SessionState.Error(_) | SessionState.Success(_)) =>
-        case _ =>
-          _state = SessionState.Success()
-      }
+  if (recovery) {
+    if (url.isEmpty) {
+      serverSideLog += "Unable to recover this session because livy-server crashed while " +
+        "livy-repl was still starting."
+      transition(SessionState.Error())
     } else {
-      _state = SessionState.Error()
+      _state = SessionState.Idle()
     }
   }
 }

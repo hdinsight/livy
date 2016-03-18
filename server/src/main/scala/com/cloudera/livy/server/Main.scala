@@ -70,7 +70,7 @@ object Main extends Logging {
     val server = new WebServer(livyConf, host, port)
     val sessionStore = new SessionStore(livyConf)
     val sessionRecovery = new SessionRecovery(sessionStore, livyConf)
-    val batchSessionManager = sessionRecovery.recover()
+    val (batchSessionManager, interactiveSessionManager) = sessionRecovery.recover()
 
     server.context.setResourceBase("src/main/com/cloudera/livy/server")
     server.context.addEventListener(
@@ -83,10 +83,14 @@ object Main extends Logging {
         override def contextInitialized(sce: ServletContextEvent): Unit = {
           try {
             val context = sce.getServletContext()
+            val interactiveSessionServlet =
+              new InteractiveSessionServlet(interactiveSessionManager, sessionStore, livyConf)
+            val batchSessionServlet =
+              new BatchSessionServlet(batchSessionManager, sessionStore, livyConf)
+
             context.initParameters(org.scalatra.EnvironmentKey) = livyConf.get(ENVIRONMENT)
-            context.mount(new InteractiveSessionServlet(livyConf), "/sessions/*")
-            context.mount(new BatchSessionServlet(batchSessionManager, sessionStore, livyConf),
-              "/batches/*")
+            context.mount(interactiveSessionServlet, "/sessions/*")
+            context.mount(batchSessionServlet, "/batches/*")
             context.mount(new ClientSessionServlet(livyConf), "/clients/*")
             context.mountMetricsAdminServlet("/")
           } catch {

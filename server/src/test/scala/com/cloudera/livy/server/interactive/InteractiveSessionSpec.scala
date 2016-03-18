@@ -32,6 +32,7 @@ import org.scalatest.{BeforeAndAfterAll, Matchers}
 import org.scalatra.test.scalatest.ScalatraSpec
 
 import com.cloudera.livy.{ExecuteRequest, LivyConf}
+import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.sessions.{PySpark, SessionState}
 
 class InteractiveSessionSpec extends ScalatraSpec with Matchers with BeforeAndAfterAll {
@@ -72,7 +73,7 @@ class InteractiveSessionSpec extends ScalatraSpec with Matchers with BeforeAndAf
     val req = new CreateInteractiveRequest()
     req.kind = PySpark()
     req.conf = Map("spark.livy.callbackUrl" -> s"${server.getURI.toString}callback")
-    new InteractiveSession(0, null, livyConf, req)
+    InteractiveSession.create(0, null, livyConf, req, new SessionStore(livyConf))
   }
 
   override def afterAll(): Unit = {
