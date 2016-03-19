@@ -36,10 +36,12 @@ import org.apache.hadoop.yarn.util.ConverterUtils
 import com.cloudera.livy.Logging
 import com.cloudera.livy.util.LineBufferedProcess
 
-object SparkYarnApplication {
-  private val YARN_GET_APP_ID_FROM_TAG_TIMEOUT = 5.minutes
-  private val YARN_KILL_TIMEOUT = 10.second
-  private val YARN_POLL_INTERVAL = 1.second
+object SparkYarnApp {
+  private implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
+
+  private val APP_TAG_TO_ID_TIMEOUT = 5.minutes
+  private val KILL_TIMEOUT = 10.second
+  private val POLL_INTERVAL = 1.second
 
   // YarnClient is thread safe. Create once, share it across applications.
   private[this] lazy val yarnClient = YarnClient.createYarnClient()
@@ -54,77 +56,55 @@ object SparkYarnApplication {
     yarnClient
   }
 
-  def parseApplicationId(applicationId: String): ApplicationId =
-    ConverterUtils.toApplicationId(applicationId)
+  def parseAppId(appId: String): ApplicationId =
+    ConverterUtils.toApplicationId(appId)
+
+  def getAppIdFromTagAsync(appTag: String): Future[ApplicationId] =
+    Future { getAppIdFromTag(appTag).get }
 
   /**
    * Find the corresponding YARN application id from an application tag.
    *
-   * @param applicationTag The application tag tagged on the target application.
-   *                       If the tag is not unique, it returns the first application it found.
+   * @param appTag The application tag tagged on the target application.
+   *               If the tag is not unique, it returns the first application it found.
    * @return ApplicationId or the failure.
    */
   @tailrec
-  private def getApplicationIdFromTag(
-      applicationTag: String,
-      deadline: Deadline = YARN_GET_APP_ID_FROM_TAG_TIMEOUT.fromNow)
-    : Try[ApplicationId] = {
+  private def getAppIdFromTag(
+    appTag: String,
+    deadline: Deadline = APP_TAG_TO_ID_TIMEOUT.fromNow): Try[ApplicationId] = {
     // FIXME Should not loop thru all YARN applications but YarnClient doesn't offer an API.
-    getYarnClient().getApplications().asScala.find(_.getApplicationTags.contains(applicationTag))
+    getYarnClient().getApplications().asScala.find(_.getApplicationTags.contains(appTag))
       match {
         case Some(app) => Success(app.getApplicationId)
         case None =>
           if (deadline.isOverdue) {
-            Failure(new Exception(s"No YARN application is tagged with $applicationTag."))
+            Failure(new Exception(s"No YARN application is tagged with $appTag."))
           } else {
-            blocking { Thread.sleep(YARN_POLL_INTERVAL.toMillis) }
-            getApplicationIdFromTag(applicationTag, deadline)
+            blocking { Thread.sleep(POLL_INTERVAL.toMillis) }
+            getAppIdFromTag(appTag, deadline)
           }
       }
   }
-
-  // SparkYarnApplication uses a lot of blocking Future. It should have its own ExecutionContext.
-  private implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
 }
 
 /**
  * Encapsulate a Spark application through YARN.
  * It provides state tracking & logging.
  *
- * @param applicationIdFuture A future that returns the YARN application id for this application.
+ * @param appIdFuture A future that returns the YARN application id for this application.
  * @param process The spark-submit process launched the YARN application. This is optional.
- *                If it's provided, SparkYarnApplication.log() will include its log.
+ *                If it's provided, SparkYarnApp.log() will include its log.
  */
-class SparkYarnApplication(
-    applicationIdFuture: Future[ApplicationId],
-    process: Option[LineBufferedProcess] = None,
-    applicationIdRetrieved: (String) => Unit = _ => {})
-  extends SparkApplication
-  with Logging {
-
-  /**
-   * Construct a Spark application from an application tag.
-   *
-   * @param applicationTag The application tag tagged on the target application.
-   *                       If the tag is not unique, it picks the first application it found.
-   * @param process The spark-submit process launched the YARN application. This is optional.
-   *                If it's provided, SparkYarnApplication.log() will include its log.
-   */
-  def this(
-    applicationTag: String,
+class SparkYarnApp(
+    appIdFuture: Future[ApplicationId],
     process: Option[LineBufferedProcess],
-    applicationIdRetrieved: (String) => Unit) =
-    this(
-      Future { SparkYarnApplication.getApplicationIdFromTag(applicationTag).get }
-        (SparkYarnApplication.ec),
-      process,
-      applicationIdRetrieved)
+    listener: Option[SparkAppListener])
+  extends SparkApp
+  with Logging {
+  import SparkYarnApp.ec
 
-  def this(applicationTag: String) = this(applicationTag, None, (s: String) => {})
-
-  import SparkYarnApplication.ec
-
-  private lazy val yarnClient = SparkYarnApplication.getYarnClient()
+  private lazy val yarnClient = SparkYarnApp.getYarnClient()
   private var state: YarnApplicationState = YarnApplicationState.NEW
   private var finalDiagnosticsLog: ArrayBuffer[String] = ArrayBuffer.empty[String]
 
@@ -133,24 +113,28 @@ class SparkYarnApplication(
   private val pollThread = new Thread(s"yarnPollThread_$this") {
     override def run() = {
       try {
-        val applicationId = Await.result(applicationIdFuture, Duration.Inf)
+        val appId = Await.result(appIdFuture, Duration.Inf)
         // Execute callback to notify upper layer the YARN application id.
-        applicationIdRetrieved(applicationId.toString)
+        listener.foreach(_.appIdKnown(appId.toString))
 
         while (isRunning) {
           // Refresh application state
-          state = yarnClient.getApplicationReport(applicationId).getYarnApplicationState
-          Thread.sleep(SparkYarnApplication.YARN_POLL_INTERVAL.toMillis)
+          val newState = yarnClient.getApplicationReport(appId).getYarnApplicationState
+          if (state != newState) {
+            listener.foreach(_.stateChanged(mapYarnState(state), mapYarnState(newState)))
+            state = newState
+          }
+          Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
         }
 
         // Log final YARN diagnostics for better error reporting.
-        val finalDiagnostics = yarnClient.getApplicationReport(applicationId).getDiagnostics
-        if (!finalDiagnostics.isEmpty) {
+        val finalDiagnostics = yarnClient.getApplicationReport(appId).getDiagnostics
+        if (finalDiagnostics != null && !finalDiagnostics.isEmpty) {
           finalDiagnosticsLog += "---=== YARN Diagnostics ===---"
           finalDiagnosticsLog ++= finalDiagnostics.split("\n")
         }
 
-        info(s"$applicationId $state $finalDiagnostics")
+        info(s"$appId $state $finalDiagnostics")
       } catch {
         case e: InterruptedException =>
           finalDiagnosticsLog = ArrayBuffer("Session stopped by user.")
@@ -168,8 +152,7 @@ class SparkYarnApplication(
   override def stop(): Unit = {
     if (isRunning) {
       try {
-        Await.result(applicationIdFuture.map(yarnClient.killApplication),
-          SparkYarnApplication.YARN_KILL_TIMEOUT)
+        Await.result(appIdFuture.map(yarnClient.killApplication), SparkYarnApp.KILL_TIMEOUT)
       } catch {
         // If we don't have the application id, try out best to kill the application.
         // There's a chance the YARN application was lost.
@@ -191,14 +174,29 @@ class SparkYarnApplication(
       case YarnApplicationState.FINISHED => 0
       case YarnApplicationState.FAILED | YarnApplicationState.KILLED => 1
       case _ =>
-        error(s"Unexpected YARN state ${applicationIdFuture.value.get.get} $state")
+        error(s"Unexpected YARN state ${appIdFuture.value.get.get} $state")
         1
     }
   }
+
+  override def appId: Option[String] = appIdFuture.value.flatMap(_.toOption).map(_.toString)
 
   private def isRunning: Boolean = {
     state != YarnApplicationState.FAILED &&
     state != YarnApplicationState.FINISHED &&
     state != YarnApplicationState.KILLED
+  }
+
+  private def mapYarnState(yarnApplicationState: YarnApplicationState): SparkApp.State.Value = {
+    yarnApplicationState match {
+      case (YarnApplicationState.NEW |
+            YarnApplicationState.NEW_SAVING |
+            YarnApplicationState.SUBMITTED |
+            YarnApplicationState.ACCEPTED) => SparkApp.State.STARTING
+      case YarnApplicationState.RUNNING => SparkApp.State.RUNNING
+      case YarnApplicationState.FINISHED => SparkApp.State.FINISHED
+      case YarnApplicationState.FAILED => SparkApp.State.FAILED
+      case YarnApplicationState.KILLED => SparkApp.State.KILLED
+    }
   }
 }

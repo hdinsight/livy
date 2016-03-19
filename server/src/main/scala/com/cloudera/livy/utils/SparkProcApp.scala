@@ -23,9 +23,10 @@ import com.cloudera.livy.util.LineBufferedProcess
 /**
  * Encapsulate a Spark application through the spark-submit process launching the spark application.
  * It provides state tracking & logging.
+ *
  * @param process The spark-submit process launched the Spark application.
  */
-class SparkLocalApplication(process: LineBufferedProcess) extends SparkApplication {
+class SparkProcApp(process: LineBufferedProcess) extends SparkApp {
 
   override def stop(): Unit = {
     if (process.isAlive) {
@@ -36,4 +37,7 @@ class SparkLocalApplication(process: LineBufferedProcess) extends SparkApplicati
   override def log(): IndexedSeq[String] = process.inputLines
 
   override def waitFor(): Int = process.waitFor()
+
+  // TODO Migrate to SparkLauncher and return SparkAppHandle.getAppId()
+  override def appId: Option[String] = None
 }

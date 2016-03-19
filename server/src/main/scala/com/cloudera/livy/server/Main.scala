@@ -37,7 +37,7 @@ import com.cloudera.livy.server.batch.BatchSessionServlet
 import com.cloudera.livy.server.client.ClientSessionServlet
 import com.cloudera.livy.server.interactive.InteractiveSessionServlet
 import com.cloudera.livy.util.LineBufferedProcess
-import com.cloudera.livy.utils.SparkYarnApplication
+import com.cloudera.livy.utils.SparkYarnApp
 
 object Main extends Logging {
 
@@ -59,7 +59,7 @@ object Main extends Logging {
     Future {
       // Preload YarnClient
       info("Yarn Client creating...")
-      SparkYarnApplication.getYarnClient()
+      SparkYarnApp.getYarnClient()
       info("Yarn Client created.")
     }
 

@@ -37,7 +37,7 @@ import org.json4s.jackson.Serialization.write
 import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging, Utils}
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
-import com.cloudera.livy.utils.{SparkApplication, SparkProcessBuilder}
+import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
 
 object InteractiveSession {
   val LivyReplAdditionalFiles = "livy.repl.additional.files"
@@ -135,8 +135,7 @@ class InteractiveSession(
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
 
-    val applicationTag = s"livy_${UUID.randomUUID()}"
-    SparkApplication.create(builder, None, List(kind.toString), livyConf, applicationTag)
+    SparkApp.create("", builder, None, List(kind.toString), livyConf, None)
   }
 
   override def logLines(): IndexedSeq[String] = process.log

@@ -38,9 +38,9 @@ class BatchSessionServlet(
     BatchSession.create(
       sessionManager.nextId(),
       remoteUser(req),
-      livyConf,
       createRequest,
-      sessionStore)
+      sessionStore,
+      livyConf)
   }
 
   override protected def clientSessionView(session: BatchSession, req: HttpServletRequest): Any = {

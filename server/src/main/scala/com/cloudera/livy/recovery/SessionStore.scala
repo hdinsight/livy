@@ -21,12 +21,7 @@ import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.server.batch.BatchSession
 import com.cloudera.livy.sessions.Session
 
-case class SessionMetadata(
-  id: Int,
-  tag: String,
-  owner: String,
-  clusterManager: String,
-  clusterAppId: Option[String])
+case class SessionMetadata(id: Int, uuid: String, owner: String, appId: Option[String])
 
 case class SessionManagerState(nextSessionId: Int)
 
@@ -50,13 +45,8 @@ class SessionStore(livyConf: LivyConf) extends Logging {
    * Add a session to the session state store.
    *
    * @param session The session being added.
-   * @param clusterAppTag (e.g. the YARN application tag)
-   * @param clusterAppId (e.g. the YARN application id)
    */
-  def set(
-    session: Session,
-    clusterAppTag: String,
-    clusterAppId: Option[String]): Unit = synchronized {
+  def set(session: Session): Unit = synchronized {
     val sessionType = getSessionType(session)
 
     // Update nextSessionId in SessionManagerState.
@@ -64,7 +54,11 @@ class SessionStore(livyConf: LivyConf) extends Logging {
     store.set(generateSessionManagerStatePath(sessionType), SessionManagerState(nextSessionId))
 
     // Store the session metadata.
-    val metadata = SessionMetadata(session.id, clusterAppTag, session.owner, "yarn", clusterAppId)
+    val metadata = SessionMetadata(
+      session.id,
+      session.uuid,
+      session.owner,
+      session.appId)
     store.set(generateSessionPath(session), metadata)
   }
 

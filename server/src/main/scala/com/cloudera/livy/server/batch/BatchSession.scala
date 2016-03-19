@@ -26,15 +26,36 @@ import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import com.cloudera.livy.LivyConf
 import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.sessions.{Session, SessionState}
-import com.cloudera.livy.utils.{SparkApplication, SparkProcessBuilder}
+import com.cloudera.livy.utils.{SparkApp, SparkAppListener, SparkProcessBuilder}
 
 object BatchSession {
   def create(
       id: Int,
       owner: String,
-      livyConf: LivyConf,
       request: CreateBatchRequest,
-      sessionStore: SessionStore): BatchSession = {
+      sessionStore: SessionStore,
+      livyConf: LivyConf): BatchSession = {
+    val builder = transformRequestToBuilder(request, livyConf)
+    val createSparkApp = { (s: BatchSession) =>
+      SparkApp.create(s.uuid, builder, Option(request.file), request.args, livyConf, Option(s))
+    }
+    new BatchSession(id, UUID.randomUUID().toString, owner, sessionStore, createSparkApp, livyConf)
+  }
+
+  def recover(
+      id: Int,
+      uuid: String,
+      appId: Option[String],
+      owner: String,
+      sessionStore: SessionStore,
+      livyConf: LivyConf): BatchSession = {
+    val recoverSparkApp = { (s: BatchSession) =>
+      SparkApp.recover(uuid, appId, livyConf, Option(s))
+    }
+    new BatchSession(id, uuid, owner, sessionStore, recoverSparkApp, livyConf, appId)
+  }
+
+  private[this] def transformRequestToBuilder(request: CreateBatchRequest, livyConf: LivyConf) = {
     require(request.file != null, "File is required.")
 
     val builder = new SparkProcessBuilder(livyConf)
@@ -56,42 +77,33 @@ object BatchSession {
     request.name.foreach(builder.name)
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
-
-    val applicationTag = s"livy_${UUID.randomUUID()}"
-
-    new BatchSession(id, owner, livyConf, session => {
-      sessionStore.set(session, applicationTag, None)
-
-      SparkApplication.create(
-        builder,
-        Some(request.file),
-        request.args,
-        livyConf,
-        applicationTag,
-        (clusterAppTag: String, clusterAppId: String) => {
-          sessionStore.set(session, clusterAppTag, Option(clusterAppId))
-        })
-    })
-  }
-
-  def recover(
-      id: Int,
-      clusterAppTag: String,
-      clusterAppId: Option[String],
-      owner: String,
-      livyConf: LivyConf): BatchSession = {
-    new BatchSession(id, owner, livyConf, _ => {
-      SparkApplication.recover(clusterAppTag, clusterAppId, livyConf)
-    })
   }
 }
 
 class BatchSession private (
     id: Int,
+    uuid: String,
     owner: String,
+    sessionStore: SessionStore,
+    processCreator: (BatchSession) => SparkApp,
     livyConf: LivyConf,
-    processCreator: (Session) => SparkApplication)
-  extends Session(id, owner) {
+    appId: Option[String] = None)
+  extends Session(id, owner, uuid, appId)
+  with SparkAppListener {
+
+  // Listener
+  override def startingApp(): Unit = sessionStore.set(this)
+
+  override def appIdKnown(appId: String): Unit = {
+    // When we are recovering from an appId, we don't want to update the session store again.
+    if (appId != _appId) {
+      _appId = Option(appId)
+      sessionStore.set(this)
+    }
+  }
+
+  override def stateChanged(oldState: SparkApp.State.Value, newState: SparkApp.State.Value): Unit =
+    {}
 
   private val process = processCreator(this)
 
@@ -124,6 +136,7 @@ class BatchSession private (
     }
   }
 
+  // FIXME Listen to SparkAppListener instead of starting a thread.
   /** Simple daemon thread to make sure we change state when the process exits. */
   private[this] val thread = new Thread("Batch Process Reaper") {
     override def run(): Unit = {

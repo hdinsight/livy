@@ -27,9 +27,10 @@ class SessionRecovery(sessionStore: SessionStore, livyConf: LivyConf) extends Lo
     val recoveredSessions = storedSessions.map { storedSession =>
       BatchSession.recover(
         storedSession.id,
-        storedSession.tag,
-        storedSession.clusterAppId,
+        storedSession.uuid,
+        storedSession.appId,
         storedSession.owner,
+        sessionStore,
         livyConf)
     }
 

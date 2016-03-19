@@ -61,9 +61,9 @@ class BatchSessionSpec
       val batch = BatchSession.create(
         0,
         null,
-        livyConf,
         req,
-        new SessionStore(livyConf))
+        new SessionStore(livyConf),
+        livyConf)
 
       Utils.waitUntil({ () => !batch.state.isActive }, Duration(10, TimeUnit.SECONDS))
       (batch.state match {
