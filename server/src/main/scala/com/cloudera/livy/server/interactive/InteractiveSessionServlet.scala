@@ -89,7 +89,7 @@ class InteractiveSessionServlet(livyConf: LivyConf)
         session.url = new URL(callback.url)
         Accepted()
       } else if (session.state.isActive) {
-        Ok()
+        BadRequest("Callback for this session has previously been registered.")
       } else {
         BadRequest("Session is in wrong state")
       }
