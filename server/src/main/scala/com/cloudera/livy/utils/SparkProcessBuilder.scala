@@ -37,6 +37,7 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
   private[this] var _files: ArrayBuffer[String] = ArrayBuffer()
   private[this] val _conf = mutable.HashMap[String, String]()
   private[this] var _driverClassPath: ArrayBuffer[String] = ArrayBuffer()
+  private[this] var _packages: ArrayBuffer[String] = ArrayBuffer()
   private[this] var _proxyUser: Option[String] = None
 
   private[this] var _queue: Option[String] = None
@@ -162,6 +163,16 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
     this.conf("spark.executor.instances", numExecutors)
   }
 
+  def packages(packageName: String): SparkProcessBuilder = {
+    _packages += packageName
+    this
+  }
+
+  def packages(packages: Traversable[String]): SparkProcessBuilder = {
+    _packages ++= packages
+    this
+  }
+
   def proxyUser(proxyUser: String): SparkProcessBuilder = {
     _proxyUser = Some(proxyUser)
     this
@@ -235,6 +246,8 @@ class SparkProcessBuilder(livyConf: LivyConf) extends Logging {
     if (livyConf.getBoolean(LivyConf.IMPERSONATION_ENABLED)) {
       addOpt("--proxy-user", _proxyUser)
     }
+
+    addList("--packages", _packages)
 
     addOpt("--queue", _queue)
     addList("--archives", _archives)
