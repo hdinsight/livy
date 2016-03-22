@@ -110,6 +110,7 @@ object InteractiveSession {
     request.proxyUser.foreach(builder.proxyUser)
     request.queue.foreach(builder.queue)
     request.name.foreach(builder.name)
+    request.packages.foreach(builder.packages)
 
     request.kind match {
       case PySpark() =>
