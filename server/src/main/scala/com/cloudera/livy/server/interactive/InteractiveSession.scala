@@ -207,16 +207,18 @@ class InteractiveSession private (
   with Logging {
 
   private val app = appCreator(this)
+  private val pendingStatementCountMutex = AnyRef
+  private var pendingStatementCount = 0
+  private var serverSideLog = ArrayBuffer.empty[String]
 
-  // FIXME Use a separate pool.
-  protected implicit def executor: ExecutionContextExecutor = ExecutionContext.global
+  protected implicit def executor: ExecutionContextExecutor =
+    ExecutionContext.fromExecutor(new scala.concurrent.forkjoin.ForkJoinPool(2))
   protected implicit def jsonFormats: Formats = DefaultFormats
 
   protected[this] var _state: SessionState = SessionState.Starting()
 
   private[this] var _executedStatements = 0
   private[this] var _statements = IndexedSeq[Statement]()
-  private var serverSideLog = ArrayBuffer.empty[String]
 
   override def logLines(): IndexedSeq[String] = app.log ++ serverSideLog
 
@@ -293,7 +295,7 @@ class InteractiveSession private (
 
   def executeStatement(content: ExecuteRequest): Statement = {
     ensureRunning {
-      _state = SessionState.Busy()
+      newPendingStatement()
       recordActivity()
 
       val req = (svc / "execute").setContentType("application/json", "UTF-8") << write(content)
@@ -347,11 +349,14 @@ class InteractiveSession private (
         result \ "status" match {
           case JString("error") =>
             if (replErroredOut()) {
+              pendingStatementCountMutex.synchronized {
+                pendingStatementCount = 0
+              }
               transition(SessionState.Error())
             } else {
-              transition(SessionState.Idle())
+              endPendingStatement()
             }
-          case _ => transition(SessionState.Idle())
+          case _ => endPendingStatement()
         }
 
         Some(result)
@@ -392,7 +397,48 @@ class InteractiveSession private (
       }
     }
   }
-  
+
+  private def newPendingStatement(): Unit = {
+    pendingStatementCountMutex.synchronized {
+      transition(SessionState.Busy())
+      pendingStatementCount += 1
+    }
+  }
+
+  private def endPendingStatement(): Unit = {
+    pendingStatementCountMutex.synchronized {
+      pendingStatementCount -= 1
+      assert(pendingStatementCount >= 0)
+      if (pendingStatementCount == 0) {
+        transition(SessionState.Idle())
+      }
+    }
+  }
+
+  private def startStatementsRecovery(): Future[Unit] = {
+    Future {
+      val req = (svc / "history").setContentType("application/json", "UTF-8") <<?
+        Map("size" -> Int.MaxValue.toString)
+      val resp = Await.result(Http(req OK as.json4s.Json), Duration.Inf)
+
+      _executedStatements = (resp \ "total").extract[Int]
+      val statements = (resp \ "statements").extract[List[JValue]]
+
+      transition(SessionState.Idle())
+
+      _statements = statements.map(s => {
+        val id = (s \ "id").extract[Int]
+        val result = (s \ "result").extract[JValue] match {
+          case JNull => // If statement is still executing, result will be null.
+            newPendingStatement()
+            Future { waitForStatement(id) }
+          case v: JValue => Future {v}
+        }
+        new Statement(id, null, result)
+      }).toIndexedSeq
+    }
+  }
+
   override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {
     // Error out the job if the app errors out.
     newState match {
@@ -410,7 +456,7 @@ class InteractiveSession private (
         "livy-repl was still starting."
       transition(SessionState.Error())
     } else {
-      _state = SessionState.Idle()
+      startStatementsRecovery()
     }
   }
 }
