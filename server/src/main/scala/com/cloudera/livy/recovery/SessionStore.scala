@@ -90,8 +90,9 @@ class SessionStore(livyConf: LivyConf) extends Logging {
    * If an error is thrown while retrieving a session, it logs the exception and skips that session.
    */
   def getAllSessions(sessionType: SessionType): Seq[SessionMetadata] = {
-    store.getChildren(sessionType.toString).flatMap { childKey =>
-      val sessionKey = s"$storeVersion/$sessionType/$childKey"
+    val sessionTypePath = generateSessionTypePath(sessionType)
+    store.getChildren(sessionTypePath).flatMap { childKey =>
+      val sessionKey = s"$sessionTypePath/$childKey"
       failWithLogging(s"Failed to retrieve $sessionKey", error)
         { store.get(sessionKey, classOf[SessionMetadata]) }
     }
@@ -115,6 +116,8 @@ class SessionStore(livyConf: LivyConf) extends Logging {
   def remove(session: Session): Unit = {
     store.remove(generateSessionPath(session))
   }
+  private def generateSessionTypePath(sessionType: SessionType): String =
+    s"$storeVersion/$sessionType"
 
   private def generateSessionPath(session: Session): String =
     s"$storeVersion/${getSessionType(session)}/${session.id}"

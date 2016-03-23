@@ -44,7 +44,7 @@ class FileStateStore(livyConf: LivyConf) extends StateStore with Logging {
   }
 
   override def set(key: String, value: Object): Unit = synchronized {
-    store(key) = serialize(value)
+    store(key) = serializeToString(value)
     persist()
   }
 

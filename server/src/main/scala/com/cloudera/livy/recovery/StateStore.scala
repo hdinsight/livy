@@ -33,9 +33,13 @@ protected trait JsonMapper {
     .registerModule(DefaultScalaModule)
     .registerModule(new SessionKindModule())
 
-  def serialize(value: Object): String = mapper.writeValueAsString(value)
+  def serializeToString(value: Object): String = mapper.writeValueAsString(value)
+
+  def serializeToBytes(value: Object): Array[Byte] = mapper.writeValueAsBytes(value)
 
   def deserialize[T](json: String, valueType: Class[T]): T = mapper.readValue(json, valueType)
+
+  def deserialize[T](json: Array[Byte], valueType: Class[T]): T = mapper.readValue(json, valueType)
 }
 
 /**
@@ -108,6 +112,7 @@ object StateStore extends Logging {
     recoveryMode match {
       case "off" => BlackholeStateStore.getClass.getName
       case "local" => FileStateStore.getClass.getName
+      case "ha" => ZooKeeperStateStore.getClass.getName
       case _ => throw new IllegalArgumentException(s"Unsupported recovery mode: $recoveryMode")
     }
   }
