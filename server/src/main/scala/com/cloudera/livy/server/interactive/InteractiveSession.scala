@@ -440,13 +440,15 @@ class InteractiveSession private (
   }
 
   override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {
-    // Error out the job if the app errors out.
-    newState match {
-      case SparkApp.State.FINISHED =>
-        _state = SessionState.Success()
-      case SparkApp.State.KILLED | SparkApp.State.FAILED =>
-        _state = SessionState.Dead()
-      case _ =>
+    synchronized {
+      // Error out the job if the app errors out.
+      newState match {
+        case SparkApp.State.FINISHED =>
+          _state = SessionState.Success()
+        case SparkApp.State.KILLED | SparkApp.State.FAILED =>
+          _state = SessionState.Dead()
+        case _ =>
+      }
     }
   }
 

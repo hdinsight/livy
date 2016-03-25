@@ -26,7 +26,7 @@ import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import com.cloudera.livy.LivyConf
 import com.cloudera.livy.recovery.{RecoverableSession, SessionStore}
 import com.cloudera.livy.sessions.{Session, SessionState}
-import com.cloudera.livy.utils.{SparkApp, SparkAppListener, SparkProcessBuilder}
+import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
 
 object BatchSession {
   def create(
@@ -109,26 +109,19 @@ class BatchSession private (
 
   private def destroyProcess() = {
     app.stop()
-    reapProcess(app.waitFor())
+    app.waitFor()
   }
 
-  private def reapProcess(exitCode: Int) = synchronized {
-    if (_state.isActive) {
-      if (exitCode == 0) {
-        _state = SessionState.Success()
-      } else {
-        _state = SessionState.Error()
+  /** Fired when the app state in the cluster changes. */
+  override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {
+    synchronized {
+      newState match {
+        case SparkApp.State.FINISHED =>
+          _state = SessionState.Success()
+        case SparkApp.State.KILLED | SparkApp.State.FAILED =>
+          _state = SessionState.Dead()
+        case _ =>
       }
     }
   }
-
-  // FIXME Listen to SparkAppListener instead of starting a thread.
-  /** Simple daemon thread to make sure we change state when the app exits. */
-  private[this] val thread = new Thread("Batch Process Reaper") {
-    override def run(): Unit = {
-      reapProcess(app.waitFor())
-    }
-  }
-  thread.setDaemon(true)
-  thread.start()
 }
