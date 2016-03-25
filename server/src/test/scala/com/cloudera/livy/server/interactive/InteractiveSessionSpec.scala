@@ -27,7 +27,7 @@ import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.json4s.{DefaultFormats, Extraction}
+import org.json4s.{DefaultFormats, Extraction, JValue}
 import org.scalatest.{BeforeAndAfterAll, Matchers}
 import org.scalatra.test.scalatest.ScalatraSpec
 
@@ -36,6 +36,8 @@ import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.sessions.{PySpark, SessionState}
 
 class InteractiveSessionSpec extends ScalatraSpec with Matchers with BeforeAndAfterAll {
+  private def resultWithoutTraceback(result: JValue): JValue =
+    result.removeField(_._1 == "traceback")
 
   private val livyConf = new LivyConf()
   livyConf.set("livy.repl.driverClassPath", sys.props("java.class.path"))
@@ -122,14 +124,10 @@ class InteractiveSessionSpec extends ScalatraSpec with Matchers with BeforeAndAf
         "status" -> "error",
         "execution_count" -> 1,
         "ename" -> "NameError",
-        "evalue" -> "name 'x' is not defined",
-        "traceback" -> List(
-          "Traceback (most recent call last):\n",
-          "NameError: name 'x' is not defined\n"
-        )
+        "evalue" -> "name 'x' is not defined"
       ))
 
-      result should equal (expectedResult)
+      resultWithoutTraceback(result) should equal (expectedResult)
       session.state should equal (SessionState.Idle())
     }
 

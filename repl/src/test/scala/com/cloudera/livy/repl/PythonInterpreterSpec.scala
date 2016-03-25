@@ -20,14 +20,28 @@ package com.cloudera.livy.repl
 
 import org.json4s.{DefaultFormats, JValue}
 import org.json4s.JsonDSL._
-import org.scalatest.Outcome
+import org.scalatest.Inside.inside
 
 import com.cloudera.livy.repl
+import com.cloudera.livy.repl.Interpreter._
 import com.cloudera.livy.repl.python.PythonInterpreter
 
 class PythonInterpreterSpec extends BaseInterpreterSpec {
-
   implicit val formats = DefaultFormats
+
+  private def verifyError(
+    response: ExecuteResponse,
+    ename: String,
+    evalue: String,
+    tracebackPattern: Option[String] = None) = {
+    inside(response) {
+      case Interpreter.ExecuteError(actualEname, actualEvalue, actualTraceback) =>
+        actualEname should equal (ename)
+        actualEvalue should equal (evalue)
+        val actualTracebackLines = actualTraceback.mkString("")
+        tracebackPattern.foreach(actualTracebackLines should include regex _)
+    }
+  }
 
   override def createInterpreter(): Interpreter = PythonInterpreter()
 
@@ -147,32 +161,17 @@ class PythonInterpreterSpec extends BaseInterpreterSpec {
 
   it should "report an error if accessing an unknown variable" in withInterpreter { interpreter =>
     val response = interpreter.execute("x")
-    response should equal(Interpreter.ExecuteError(
-      "NameError",
-      "name 'x' is not defined",
-      List(
-        "Traceback (most recent call last):\n",
-        "NameError: name 'x' is not defined\n"
-      )
-    ))
+    verifyError(response, "NameError", "name 'x' is not defined")
   }
 
   it should "report an error if empty magic command" in withInterpreter { interpreter =>
     val response = interpreter.execute("%")
-    response should equal(Interpreter.ExecuteError(
-      "UnknownMagic",
-      "magic command not specified",
-      List("UnknownMagic: magic command not specified\n")
-    ))
+    verifyError(response, "UnknownMagic", "magic command not specified")
   }
 
   it should "report an error if unknown magic command" in withInterpreter { interpreter =>
     val response = interpreter.execute("%foo")
-    response should equal(Interpreter.ExecuteError(
-      "UnknownMagic",
-      "unknown magic command 'foo'",
-      List("UnknownMagic: unknown magic command 'foo'\n")
-    ))
+    verifyError(response, "UnknownMagic", "unknown magic command 'foo'")
   }
 
   it should "not execute part of the block if there is a syntax error" in withInterpreter { intp =>
@@ -180,27 +179,16 @@ class PythonInterpreterSpec extends BaseInterpreterSpec {
       """x = 1
         |'
       """.stripMargin)
-
-    response should equal(Interpreter.ExecuteError(
-      "SyntaxError",
-      "EOL while scanning string literal (<stdin>, line 2)",
-      List(
-        "  File \"<stdin>\", line 2\n",
-        "    '\n",
-        "    ^\n",
-        "SyntaxError: EOL while scanning string literal\n"
-      )
-    ))
+    verifyError(
+      response,
+      "SyntaxError", "EOL while scanning string literal (<stdin>, line 2)",
+      Some("(?s)File \"<stdin>\", line 2.*SyntaxError"))
 
     response = intp.execute("x")
-    response should equal(Interpreter.ExecuteError(
-      "NameError",
-      "name 'x' is not defined",
-      List(
-        "Traceback (most recent call last):\n",
-        "NameError: name 'x' is not defined\n"
-      )
-    ))
+    verifyError(
+      response,
+      "NameError", "name 'x' is not defined",
+      // Pattern line.*in makes sure the traceback has the full stacktrace.
+      Some("(?s)Traceback.*line.*in.*NameError"))
   }
-
 }
