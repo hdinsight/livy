@@ -40,7 +40,7 @@ object SparkYarnApp {
   private implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
 
   private val APP_TAG_TO_ID_TIMEOUT = 5.minutes
-  private val KILL_TIMEOUT = 10.second
+  private val KILL_TIMEOUT = 1.second
   private val POLL_INTERVAL = 1.second
 
   // YarnClient is thread safe. Create once, share it across applications.
@@ -113,17 +113,25 @@ class SparkYarnApp(
   private val pollThread = new Thread(s"yarnPollThread_$this") {
     override def run() = {
       try {
-        val appId = Await.result(appIdFuture, Duration.Inf)
+        while (true) {
+          try {
+            if (!process.fold(true) { _.isAlive }) {
+              // Before getting the appId, if there's a spark-submit process and it dies, quit.
+              throw new Exception(s"spark-submit exited with code ${process.get.exitValue()}.")
+            }
+            Await.ready(appIdFuture, SparkYarnApp.POLL_INTERVAL)
+          } catch {
+            case e: TimeoutException =>
+          }
+        }
+
+        val appId = Await.result(appIdFuture, Duration.Zero)
         // Execute callback to notify upper layer the YARN application id.
         listener.foreach(_.appIdKnown(appId.toString))
 
         while (isRunning) {
           // Refresh application state
-          val newState = yarnClient.getApplicationReport(appId).getYarnApplicationState
-          if (state != newState) {
-            listener.foreach(_.stateChanged(mapYarnState(state), mapYarnState(newState)))
-            state = newState
-          }
+          setState(yarnClient.getApplicationReport(appId).getYarnApplicationState)
           Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
         }
 
@@ -138,11 +146,11 @@ class SparkYarnApp(
       } catch {
         case e: InterruptedException =>
           finalDiagnosticsLog = ArrayBuffer("Session stopped by user.")
-          state = YarnApplicationState.KILLED
+          setState(YarnApplicationState.KILLED)
         case e: Throwable =>
           error(s"Error whiling polling YARN state: $e")
           finalDiagnosticsLog = ArrayBuffer(e.toString)
-          state = YarnApplicationState.FAILED
+          setState(YarnApplicationState.FAILED)
       }
     }
   }
@@ -197,6 +205,13 @@ class SparkYarnApp(
       case YarnApplicationState.FINISHED => SparkApp.State.FINISHED
       case YarnApplicationState.FAILED => SparkApp.State.FAILED
       case YarnApplicationState.KILLED => SparkApp.State.KILLED
+    }
+  }
+
+  private def setState(newState: YarnApplicationState): Unit = {
+    if (state != newState) {
+      listener.foreach(_.stateChanged(mapYarnState(state), mapYarnState(newState)))
+      state = newState
     }
   }
 }
