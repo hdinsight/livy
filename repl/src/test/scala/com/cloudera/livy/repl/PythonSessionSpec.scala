@@ -21,11 +21,19 @@ package com.cloudera.livy.repl
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 
-import org.json4s.Extraction
+import org.json4s.{Extraction, JValue}
 
 import com.cloudera.livy.repl.python.PythonInterpreter
 
 class PythonSessionSpec extends BaseSessionSpec {
+  private def resultWithoutTraceback(result: JValue): JValue =
+    result.removeField(_._1 == "traceback")
+
+  private def verifyTraceback(result: JValue): Unit = {
+    val traceback = Extraction.flatten(result \ "traceback").values.mkString("\n")
+    traceback should include regex "Traceback \\(most recent call last\\):"
+    traceback should include regex "line .*in"
+  }
 
   override def createInterpreter(): Interpreter = PythonInterpreter()
 
@@ -134,15 +142,12 @@ class PythonSessionSpec extends BaseSessionSpec {
     val expectedResult = Extraction.decompose(Map(
       "status" -> "error",
       "execution_count" -> 0,
-      "traceback" -> List(
-        "Traceback (most recent call last):\n",
-        "NameError: name 'x' is not defined\n"
-      ),
       "ename" -> "NameError",
       "evalue" -> "name 'x' is not defined"
     ))
 
-    result should equal (expectedResult)
+    resultWithoutTraceback(result) should equal (expectedResult)
+    verifyTraceback(result)
   }
 
   it should "report an error if exception is thrown" in withSession { session =>
@@ -157,15 +162,12 @@ class PythonSessionSpec extends BaseSessionSpec {
     val expectedResult = Extraction.decompose(Map(
       "status" -> "error",
       "execution_count" -> 0,
-      "traceback" -> List(
-        "Traceback (most recent call last):\n",
-        "Exception\n"
-      ),
       "ename" -> "Exception",
       "evalue" -> ""
     ))
 
-    result should equal (expectedResult)
+    resultWithoutTraceback(result) should equal (expectedResult)
+    verifyTraceback(result)
   }
 
 }
