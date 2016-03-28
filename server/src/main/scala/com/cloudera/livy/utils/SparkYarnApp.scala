@@ -28,7 +28,7 @@ import scala.concurrent.{blocking, Await, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
-import org.apache.hadoop.yarn.api.records.{ApplicationId, YarnApplicationState}
+import org.apache.hadoop.yarn.api.records.{ApplicationId, ApplicationReport, FinalApplicationStatus, YarnApplicationState}
 import org.apache.hadoop.yarn.client.api.YarnClient
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.util.ConverterUtils
@@ -105,7 +105,7 @@ class SparkYarnApp(
   import SparkYarnApp.ec
 
   private lazy val yarnClient = SparkYarnApp.getYarnClient()
-  private var state: YarnApplicationState = YarnApplicationState.NEW
+  private var state: SparkApp.State = SparkApp.State.STARTING
   private var finalDiagnosticsLog: ArrayBuffer[String] = ArrayBuffer.empty[String]
 
   // TODO Instead of spawning a thread for every session, create a
@@ -131,7 +131,7 @@ class SparkYarnApp(
 
         while (isRunning) {
           // Refresh application state
-          setState(yarnClient.getApplicationReport(appId).getYarnApplicationState)
+          setState(mapYarnState(yarnClient.getApplicationReport(appId)))
           Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
         }
 
@@ -146,11 +146,11 @@ class SparkYarnApp(
       } catch {
         case e: InterruptedException =>
           finalDiagnosticsLog = ArrayBuffer("Session stopped by user.")
-          setState(YarnApplicationState.KILLED)
+          setState(SparkApp.State.KILLED)
         case e: Throwable =>
           error(s"Error whiling polling YARN state: $e")
           finalDiagnosticsLog = ArrayBuffer(e.toString)
-          setState(YarnApplicationState.FAILED)
+          setState(SparkApp.State.FAILED)
       }
     }
   }
@@ -179,8 +179,8 @@ class SparkYarnApp(
     pollThread.join()
 
     state match {
-      case YarnApplicationState.FINISHED => 0
-      case YarnApplicationState.FAILED | YarnApplicationState.KILLED => 1
+      case SparkApp.State.FINISHED => 0
+      case SparkApp.State.FAILED | SparkApp.State.KILLED => 1
       case _ =>
         error(s"Unexpected YARN state ${appIdFuture.value.get.get} $state")
         1
@@ -190,27 +190,35 @@ class SparkYarnApp(
   override def appId: Option[String] = appIdFuture.value.flatMap(_.toOption).map(_.toString)
 
   private def isRunning: Boolean = {
-    state != YarnApplicationState.FAILED &&
-    state != YarnApplicationState.FINISHED &&
-    state != YarnApplicationState.KILLED
+    state != SparkApp.State.FAILED &&
+    state != SparkApp.State.FINISHED &&
+    state != SparkApp.State.KILLED
   }
 
-  private def mapYarnState(yarnApplicationState: YarnApplicationState): SparkApp.State.Value = {
-    yarnApplicationState match {
+  private def mapYarnState(applicationReport: ApplicationReport): SparkApp.State.Value = {
+      applicationReport.getYarnApplicationState match {
       case (YarnApplicationState.NEW |
             YarnApplicationState.NEW_SAVING |
             YarnApplicationState.SUBMITTED |
             YarnApplicationState.ACCEPTED) => SparkApp.State.STARTING
       case YarnApplicationState.RUNNING => SparkApp.State.RUNNING
-      case YarnApplicationState.FINISHED => SparkApp.State.FINISHED
+      case YarnApplicationState.FINISHED =>
+        applicationReport.getFinalApplicationStatus match {
+          case FinalApplicationStatus.SUCCEEDED => SparkApp.State.FINISHED
+          case FinalApplicationStatus.FAILED => SparkApp.State.FAILED
+          case FinalApplicationStatus.KILLED => SparkApp.State.KILLED
+          case s =>
+            error(s"Unknown YARN final status ${applicationReport.getApplicationId} $s")
+            SparkApp.State.FAILED
+        }
       case YarnApplicationState.FAILED => SparkApp.State.FAILED
       case YarnApplicationState.KILLED => SparkApp.State.KILLED
     }
   }
 
-  private def setState(newState: YarnApplicationState): Unit = {
+  private def setState(newState: SparkApp.State.Value): Unit = {
     if (state != newState) {
-      listener.foreach(_.stateChanged(mapYarnState(state), mapYarnState(newState)))
+      listener.foreach(_.stateChanged(state, newState))
       state = newState
     }
   }
