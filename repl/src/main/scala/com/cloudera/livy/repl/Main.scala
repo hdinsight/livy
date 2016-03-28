@@ -26,6 +26,7 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration._
 
 import dispatch._
+import org.eclipse.jetty.servlet.ServletHolder
 import org.json4s.{DefaultFormats, Formats}
 import org.json4s.jackson.Serialization.write
 import org.scalatra.LifeCycle
@@ -39,49 +40,30 @@ import com.cloudera.livy.sessions.SessionState
 
 // scalastyle:off println
 object Main extends Logging {
-  val SESSION_KIND = "livy.repl.session.kind"
-  val CALLBACK_URL = "livy.repl.callbackUrl"
-  val PYSPARK_SESSION = "pyspark"
-  val SPARK_SESSION = "spark"
-  val SPARKR_SESSION = "sparkr"
+  private implicit def executor: ExecutionContext = ExecutionContext.global
+  private implicit def jsonFormats: Formats = DefaultFormats
 
   def main(args: Array[String]): Unit = {
-
     val host = sys.props.getOrElse("spark.livy.host", "0.0.0.0")
     val port = sys.props.getOrElse("spark.livy.port", "8999").toInt
     val callbackUrl = sys.props.get("spark.livy.callbackUrl")
 
-    if (args.length != 1) {
-      println("Must specify either `pyspark`/`spark`/`sparkr` for the session kind")
-      sys.exit(1)
-    }
+    require(args.length >= 1, "Must specify either `pyspark`/`spark`/`sparkr` for the session kind")
 
     val session_kind = args.head
 
-    session_kind match {
-      case PYSPARK_SESSION | SPARK_SESSION | SPARKR_SESSION =>
-      case _ =>
-        println("Unknown session kind: " + session_kind)
-        sys.exit(1)
-    }
-
     val server = new WebServer(new LivyConf(), host, port)
-
-    server.context.setResourceBase("src/main/com/cloudera/livy/repl")
-    server.context.addEventListener(new ScalatraListener)
-    server.context.setInitParameter(ScalatraListener.LifeCycleKey,
-      classOf[ScalatraBootstrap].getCanonicalName)
-    server.context.setInitParameter(SESSION_KIND, session_kind)
-    callbackUrl.foreach(server.context.setInitParameter(CALLBACK_URL, _))
+    val session = createSession(session_kind)
+    server.context.addServlet(new ServletHolder(new WebApp(session)), "/*")
 
     try {
       server.start()
 
       val replUrl = s"http://${server.host}:${server.port}"
-      System.setProperty("livy.repl.url", replUrl)
-
       println(s"Starting livy-repl on $replUrl")
       Console.flush()
+
+      callbackUrl.foreach(notifyCallback(session, replUrl, _))
 
       server.join()
     } finally {
@@ -90,80 +72,31 @@ object Main extends Logging {
       Http.shutdown()
     }
   }
-}
 
-class ScalatraBootstrap extends LifeCycle with Logging {
 
-  protected implicit def executor: ExecutionContext = ExecutionContext.global
-  protected implicit def jsonFormats: Formats = DefaultFormats
-
-  var session: Session = null
-
-  override def init(context: ServletContext): Unit = {
-    try {
-      val interpreter = context.getInitParameter(Main.SESSION_KIND) match {
-        case Main.PYSPARK_SESSION => PythonInterpreter()
-        case Main.SPARK_SESSION => SparkInterpreter()
-        case Main.SPARKR_SESSION => SparkRInterpreter()
-      }
-
-      session = Session(interpreter)
-
-      context.mount(new WebApp(session), "/*")
-
-      // See if we want to notify someone that we've started on a url
-      Option(context.getInitParameter(Main.CALLBACK_URL)).foreach(notifyCallback)
-    } catch {
-      case e: Throwable =>
-        println(f"Exception thrown when initializing server: $e")
-        sys.exit(1)
+  private def createSession(session_kind: String): Session = {
+    val interpreter = session_kind match {
+      case "pyspark" => PythonInterpreter()
+      case "spark" => SparkInterpreter()
+      case "sparkr" => SparkRInterpreter()
+      case _ => throw new Exception("Unknown session kind: " + session_kind)
     }
+    Session(interpreter)
   }
 
-  override def destroy(context: ServletContext): Unit = {
-    if (session != null) {
-      session.close()
-    }
-  }
-
-  private def notifyCallback(callbackUrl: String): Unit = {
+  private def notifyCallback(session: Session, replUrl: String, callbackUrl: String): Unit = {
     info(s"Notifying $callbackUrl that we're up")
 
-    Future {
-      try {
-        session.waitForStateChange(SessionState.Starting(), Duration(1, TimeUnit.MINUTES))
+    session.waitForStateChange(SessionState.Starting(), Duration(1, TimeUnit.MINUTES))
 
-        // Wait for our url to be discovered.
-        val replUrl = waitForReplUrl()
+    var req = url(callbackUrl).setContentType("application/json", "UTF-8")
+    req = req << write(Map("url" -> replUrl))
 
-        var req = url(callbackUrl).setContentType("application/json", "UTF-8")
-        req = req << write(Map("url" -> replUrl))
+    info(s"Calling $callbackUrl...")
+    val rep = Http(req OK as.String)
+    rep.onFailure { case t: Throwable => throw t }
 
-        info(s"Calling $callbackUrl...")
-        val rep = Http(req OK as.String)
-        rep.onFailure {
-          case _ => System.exit(1)
-        }
-
-        Await.result(rep, Duration(10, TimeUnit.SECONDS))
-      } catch {
-        case e: Throwable =>
-          error("Exception is thrown in notifyCallback()", e)
-          System.exit(1)
-      }
-    }
-  }
-
-  /** Spin until The server may start up  */
-  @tailrec
-  private def waitForReplUrl(): String = {
-    val replUrl = System.getProperty("livy.repl.url")
-    if (replUrl == null) {
-      Thread.sleep(10)
-      waitForReplUrl()
-    } else {
-      replUrl
-    }
+    Await.result(rep, Duration(10, TimeUnit.SECONDS))
   }
 }
 // scalastyle:on println
