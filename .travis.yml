@@ -2,6 +2,11 @@ language: scala
 
 jdk:
   - oraclejdk7
+cache:
+  pip: true
+  directories:
+    - $HOME/.m2
+    - $(npm config get prefix)
 
 addons:
   apt:
@@ -15,7 +20,7 @@ script:
 
 before_install:
   - wget $MVN_SETTINGS_URL -O $HOME/.m2/settings.xml
-  - npm install -g azure-cli
+  - npm list -g azure-cli --depth=0 || npm install -g azure-cli
   - pip install --user codecov
 
 after_success:
