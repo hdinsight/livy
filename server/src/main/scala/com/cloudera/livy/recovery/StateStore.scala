@@ -112,7 +112,7 @@ object StateStore extends Logging {
     recoveryMode match {
       case "off" => BlackholeStateStore.getClass.getName
       case "local" => FileStateStore.getClass.getName
-      case "ha" => ZooKeeperStateStore.getClass.getName
+      case "ha-zk" => ZooKeeperStateStore.getClass.getName
       case _ => throw new IllegalArgumentException(s"Unsupported recovery mode: $recoveryMode")
     }
   }
