@@ -2,6 +2,11 @@ language: scala
 
 jdk:
   - oraclejdk7
+cache:
+  pip: true
+  directories:
+    - $HOME/.m2
+    - $(npm config get prefix)
 
 addons:
   apt:
@@ -14,7 +19,10 @@ script:
   - mvn verify -Dtest.redirectToFile=false
 
 before_install:
+  - wget $MVN_SETTINGS_URL -O $HOME/.m2/settings.xml
+  - npm list -g azure-cli --depth=0 || npm install -g azure-cli
   - pip install --user codecov
 
 after_success:
   - codecov
+  - bash -c "cd assembly/target && find *.zip -exec azure storage blob upload -a $AZURE_STORAGE_ACCOUNT -k $AZURE_STORAGE_ACCESS_KEY {} livy build/$TRAVIS_BUILD_NUMBER/{} \;"
