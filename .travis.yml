@@ -14,6 +14,7 @@ script:
   - mvn verify -Dtest.redirectToFile=false
 
 before_install:
+  - wget $MVN_SETTINGS_URL -O $HOME/.m2/settings.xml
   - pip install --user codecov
 
 after_success:
