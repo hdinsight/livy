@@ -26,7 +26,14 @@ import com.cloudera.livy.util.LineBufferedProcess
  *
  * @param process The spark-submit process launched the Spark application.
  */
-class SparkProcApp(process: LineBufferedProcess) extends SparkApp {
+class SparkProcApp(
+    process: LineBufferedProcess,
+    listener: Option[SparkAppListener])
+  extends SparkApp {
+
+  private var state = SparkApp.State.STARTING
+
+  override def isRunning: Boolean = process.isAlive
 
   override def stop(): Unit = {
     if (process.isAlive) {
@@ -36,8 +43,30 @@ class SparkProcApp(process: LineBufferedProcess) extends SparkApp {
 
   override def log(): IndexedSeq[String] = process.inputLines
 
-  override def waitFor(): Int = process.waitFor()
+  override def waitFor(): Int = {
+    waitThread.join()
+    process.exitValue()
+  }
 
   // TODO Migrate to SparkLauncher and return SparkAppHandle.getAppId()
   override def appId: Option[String] = None
+
+  private def changeState(newState: SparkApp.State.Value) = {
+    if (state != newState) {
+      listener.foreach(_.stateChanged(state, newState))
+      state = newState
+    }
+  }
+
+  val waitThread = new Thread(new Runnable {
+    override def run(): Unit = {
+      changeState(SparkApp.State.RUNNING)
+      process.waitFor() match {
+        case 0 => changeState(SparkApp.State.FINISHED)
+        case _ => changeState(SparkApp.State.FAILED)
+      }
+    }
+  }, s"SparProcApp_$this")
+
+  waitThread.start()
 }

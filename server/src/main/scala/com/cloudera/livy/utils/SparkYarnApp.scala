@@ -108,54 +108,16 @@ class SparkYarnApp(
   private var state: SparkApp.State = SparkApp.State.STARTING
   private var finalDiagnosticsLog: ArrayBuffer[String] = ArrayBuffer.empty[String]
 
-  // TODO Instead of spawning a thread for every session, create a
-  // centralized thread and batch query YARN.
-  private val pollThread = new Thread(s"yarnPollThread_$this") {
-    override def run() = {
-      try {
-        while (true) {
-          try {
-            if (!process.fold(true) { _.isAlive }) {
-              // Before getting the appId, if there's a spark-submit process and it dies, quit.
-              throw new Exception(s"spark-submit exited with code ${process.get.exitValue()}.")
-            }
-            Await.ready(appIdFuture, SparkYarnApp.POLL_INTERVAL)
-          } catch {
-            case e: TimeoutException =>
-          }
-        }
-
-        val appId = Await.result(appIdFuture, Duration.Zero)
-        // Execute callback to notify upper layer the YARN application id.
-        listener.foreach(_.appIdKnown(appId.toString))
-
-        while (isRunning) {
-          // Refresh application state
-          setState(mapYarnState(yarnClient.getApplicationReport(appId)))
-          Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
-        }
-
-        // Log final YARN diagnostics for better error reporting.
-        val finalDiagnostics = yarnClient.getApplicationReport(appId).getDiagnostics
-        if (finalDiagnostics != null && !finalDiagnostics.isEmpty) {
-          finalDiagnosticsLog += "---=== YARN Diagnostics ===---"
-          finalDiagnosticsLog ++= finalDiagnostics.split("\n")
-        }
-
-        info(s"$appId $state $finalDiagnostics")
-      } catch {
-        case e: InterruptedException =>
-          finalDiagnosticsLog = ArrayBuffer("Session stopped by user.")
-          setState(SparkApp.State.KILLED)
-        case e: Throwable =>
-          error(s"Error whiling polling YARN state: $e")
-          finalDiagnosticsLog = ArrayBuffer(e.toString)
-          setState(SparkApp.State.FAILED)
-      }
-    }
+  override def isRunning: Boolean = {
+    state != SparkApp.State.FAILED &&
+    state != SparkApp.State.FINISHED &&
+    state != SparkApp.State.KILLED
   }
 
-  pollThread.start()
+  override def appId: Option[String] = appIdFuture.value.flatMap(_.toOption).map(_.toString)
+
+  override def log(): IndexedSeq[String] =
+    process.map(_.inputLines).getOrElse(ArrayBuffer.empty[String]) ++ finalDiagnosticsLog
 
   override def stop(): Unit = {
     if (isRunning) {
@@ -172,9 +134,6 @@ class SparkYarnApp(
     }
   }
 
-  override def log(): IndexedSeq[String] =
-    process.map(_.inputLines).getOrElse(ArrayBuffer.empty[String]) ++ finalDiagnosticsLog
-
   override def waitFor(): Int = {
     pollThread.join()
 
@@ -185,14 +144,6 @@ class SparkYarnApp(
         error(s"Unexpected YARN state ${appIdFuture.value.get.get} $state")
         1
     }
-  }
-
-  override def appId: Option[String] = appIdFuture.value.flatMap(_.toOption).map(_.toString)
-
-  private def isRunning: Boolean = {
-    state != SparkApp.State.FAILED &&
-    state != SparkApp.State.FINISHED &&
-    state != SparkApp.State.KILLED
   }
 
   private def mapYarnState(applicationReport: ApplicationReport): SparkApp.State.Value = {
@@ -222,4 +173,57 @@ class SparkYarnApp(
       state = newState
     }
   }
+
+  // TODO Instead of spawning a thread for every session, create a
+  // centralized thread and batch query YARN.
+  private val pollThread = new Thread(s"yarnPollThread_$this") {
+    override def run() = {
+      @tailrec
+      def waitForAppId(): Unit = {
+        try {
+          if (!process.fold(true) { _.isAlive }) {
+            // Before getting the appId, if there's a spark-submit process and it dies, quit.
+            throw new Exception(s"spark-submit exited with code ${process.get.exitValue()}.")
+          }
+          Await.ready(appIdFuture, SparkYarnApp.POLL_INTERVAL)
+        } catch {
+          case e: TimeoutException => waitForAppId()
+        }
+      }
+      try {
+        waitForAppId()
+
+        val appId = Await.result(appIdFuture, Duration.Zero)
+        // Execute callback to notify upper layer the YARN application id.
+        listener.foreach(_.appIdKnown(appId.toString))
+
+        Thread.currentThread().setName(s"yarnPollThread_$appId")
+
+        while (isRunning) {
+          // Refresh application state
+          setState(mapYarnState(yarnClient.getApplicationReport(appId)))
+          Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
+        }
+
+        // Log final YARN diagnostics for better error reporting.
+        val finalDiagnostics = yarnClient.getApplicationReport(appId).getDiagnostics
+        if (finalDiagnostics != null && !finalDiagnostics.isEmpty) {
+          finalDiagnosticsLog += "---=== YARN Diagnostics ===---"
+          finalDiagnosticsLog ++= finalDiagnostics.split("\n")
+        }
+
+        debug(s"$appId $state $finalDiagnostics")
+      } catch {
+        case e: InterruptedException =>
+          finalDiagnosticsLog = ArrayBuffer("Session stopped by user.")
+          setState(SparkApp.State.KILLED)
+        case e: Throwable =>
+          error(s"Error whiling polling YARN state: $e")
+          finalDiagnosticsLog = ArrayBuffer(e.toString)
+          setState(SparkApp.State.FAILED)
+      }
+    }
+  }
+
+  pollThread.start()
 }

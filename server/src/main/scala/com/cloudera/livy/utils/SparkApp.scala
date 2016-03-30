@@ -69,7 +69,7 @@ object SparkApp extends Logging {
       val process = builder.start(file, args)
       new SparkYarnApp(getAppIdFromTagAsync(uuidToAppTag(uuid)), Option(process), listener)
     } else {
-      new SparkProcApp(builder.start(file, args))
+      new SparkProcApp(builder.start(file, args), listener)
     }
   }
 
@@ -100,6 +100,7 @@ object SparkApp extends Logging {
  * Encapsulate a Spark application.
  */
 abstract class SparkApp() {
+  def isRunning: Boolean
   def stop(): Unit
   def log(): IndexedSeq[String]
   def waitFor(): Int
