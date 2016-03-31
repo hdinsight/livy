@@ -110,6 +110,7 @@ object InteractiveSession {
     request.proxyUser.foreach(builder.proxyUser)
     request.queue.foreach(builder.queue)
     request.name.foreach(builder.name)
+    request.packages.foreach(builder.packages)
 
     request.kind match {
       case PySpark() =>
@@ -224,56 +225,10 @@ class InteractiveSession private (
 
   override def state: SessionState = _state
 
-  override def stop(): Future[Unit] = {
-    val future: Future[Unit] = synchronized {
-      _state match {
-        case SessionState.Idle() =>
-          _state = SessionState.Busy()
-
-          Http(svc.DELETE OK as.String).either() match {
-            case (Right(_) | Left(_: ConnectException)) =>
-              // Make sure to eat any connection errors because the repl shut down before it sent
-              // out an OK.
-              synchronized {
-                _state = SessionState.Dead()
-              }
-
-              Future.successful(())
-
-            case Left(t: Throwable) =>
-              Future.failed(t)
-          }
-        case SessionState.NotStarted() =>
-          Future {
-            waitForStateChange(SessionState.NotStarted(), Duration(10, TimeUnit.SECONDS))
-            stop()
-          }
-        case SessionState.Starting() =>
-          Future {
-            waitForStateChange(SessionState.Starting(), Duration(10, TimeUnit.SECONDS))
-            stop()
-          }
-        case SessionState.Busy() | SessionState.Running() =>
-          Future {
-            waitForStateChange(SessionState.Busy(), Duration(10, TimeUnit.SECONDS))
-            stop()
-          }
-        case SessionState.ShuttingDown() =>
-          Future {
-            waitForStateChange(SessionState.ShuttingDown(), Duration(10, TimeUnit.SECONDS))
-            stop()
-          }
-        case SessionState.Error(_) | SessionState.Dead(_) | SessionState.Success(_) =>
-          Future {
-            app.stop()
-            Future.successful(Unit)
-          }
-      }
-    }
-
-    future.andThen { case r =>
+  override def stop(): Future[Unit] = synchronized {
+    Future[Unit] {
+      app.stop()
       app.waitFor()
-      r
     }
   }
 

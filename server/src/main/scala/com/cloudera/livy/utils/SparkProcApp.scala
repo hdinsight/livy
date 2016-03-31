@@ -68,5 +68,6 @@ class SparkProcApp(
     }
   }, s"SparProcApp_$this")
 
+  waitThread.setDaemon(true)
   waitThread.start()
 }

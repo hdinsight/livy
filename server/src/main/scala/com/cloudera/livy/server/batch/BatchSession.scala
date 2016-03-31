@@ -75,6 +75,8 @@ object BatchSession {
     request.archives.foreach(builder.archive)
     request.queue.foreach(builder.queue)
     request.name.foreach(builder.name)
+    request.packages.foreach(builder.packages)
+
     builder.redirectOutput(Redirect.PIPE)
     builder.redirectErrorStream(true)
   }

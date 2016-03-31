@@ -53,7 +53,7 @@ def execute_reply_error(exc_type, exc_value, tb):
     return execute_reply('error', {
         'ename': unicode(exc_type.__name__),
         'evalue': unicode(exc_value),
-        'traceback': traceback.format_exception(exc_type, exc_value, tb, -1),
+        'traceback': traceback.format_exception(exc_type, exc_value, tb),
     })
 
 

@@ -18,8 +18,8 @@
 
 package com.cloudera.livy.utils
 
+import java.util.concurrent.{ThreadFactory, TimeoutException}
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeoutException
 
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
@@ -37,7 +37,16 @@ import com.cloudera.livy.Logging
 import com.cloudera.livy.util.LineBufferedProcess
 
 object SparkYarnApp {
-  private implicit val ec = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
+  private class NonDaemonThreadFactory extends ThreadFactory {
+    def newThread(r: Runnable): Thread = {
+      val t = new Thread(r)
+      t.setDaemon(true)
+      t
+    }
+  }
+
+  private implicit val ec = ExecutionContext.fromExecutor(
+    Executors.newCachedThreadPool(new NonDaemonThreadFactory()))
 
   private val APP_TAG_TO_ID_TIMEOUT = 5.minutes
   private val KILL_TIMEOUT = 1.second
@@ -225,5 +234,6 @@ class SparkYarnApp(
     }
   }
 
+  pollThread.setDaemon(true)
   pollThread.start()
 }
