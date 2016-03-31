@@ -39,6 +39,14 @@
 # any file the Livy process can access, such as Livy's SSL certificate.
 ## livy.files.dir = /var/run/livy/uploaded-files
 
+# Recovery mode of livy-server.
+# off: Sessions information is lost after restarting livy-server.
+# local: Sessions information is preserved in a local file.
+## livy.server.recovery.mode = off
+
+# Where sessions information should be preserved when recovery mode is "local"
+## livy.server.recovery.file.state-store.path = livy-state
+
 # Additional files livy will include when starting interactive sessions.
 # It is equivalent to setting "--files" on every session request.
 ## livy.repl.additional.files = hdfs://localhost:8020/hive-site.xml

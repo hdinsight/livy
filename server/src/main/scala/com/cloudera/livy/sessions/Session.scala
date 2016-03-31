@@ -18,11 +18,19 @@
 
 package com.cloudera.livy.sessions
 
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 import scala.concurrent.Future
 
-abstract class Session(val id: Int, val owner: String) {
+abstract class Session(
+  val id: Int,
+  val owner: String,
+  // This is an unique identifier for the session across all session types.
+  // Recovery uses it to find the app in the cluster.
+  val uuid: String = UUID.randomUUID().toString,
+  // spark.app.id when it's available.
+  protected var _appId: Option[String] = None) {
 
   private var _lastActivity = System.nanoTime()
 
@@ -35,6 +43,8 @@ abstract class Session(val id: Int, val owner: String) {
 
   val timeout: Long = TimeUnit.HOURS.toNanos(1)
 
+  def appId: Option[String] = _appId
+
   def state: SessionState
 
   def stop(): Future[Unit]
@@ -44,5 +54,4 @@ abstract class Session(val id: Int, val owner: String) {
   }
 
   def logLines(): IndexedSeq[String]
-
 }

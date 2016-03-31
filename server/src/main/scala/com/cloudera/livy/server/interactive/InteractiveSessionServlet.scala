@@ -29,14 +29,18 @@ import org.json4s.jackson.Json4sScalaModule
 import org.scalatra._
 
 import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging}
+import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.server.SessionServlet
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
 
 object InteractiveSessionServlet extends Logging
 
-class InteractiveSessionServlet(livyConf: LivyConf)
-  extends SessionServlet[InteractiveSession](livyConf)
+class InteractiveSessionServlet(
+    sessionManager: SessionManager[InteractiveSession],
+    sessionStore: SessionStore,
+    livyConf: LivyConf)
+  extends SessionServlet[InteractiveSession](livyConf, sessionManager)
 {
 
   mapper.registerModule(new SessionKindModule())
@@ -44,7 +48,12 @@ class InteractiveSessionServlet(livyConf: LivyConf)
 
   override protected def createSession(req: HttpServletRequest): InteractiveSession = {
     val createRequest = bodyAs[CreateInteractiveRequest](req)
-    new InteractiveSession(sessionManager.nextId(), remoteUser(req), livyConf, createRequest)
+    InteractiveSession.create(
+      sessionManager.nextId(),
+      remoteUser(req),
+      livyConf,
+      createRequest,
+      sessionStore)
   }
 
   override protected def clientSessionView(
@@ -89,7 +98,7 @@ class InteractiveSessionServlet(livyConf: LivyConf)
         session.url = new URL(callback.url)
         Accepted()
       } else if (session.state.isActive) {
-        Ok()
+        BadRequest("Callback for this session has previously been registered.")
       } else {
         BadRequest("Session is in wrong state")
       }
