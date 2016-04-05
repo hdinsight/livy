@@ -31,7 +31,7 @@
 
   <properties>
     <assembly.name>livy-server-${project.version}</assembly.name>
-    <assembly.format>zip</assembly.format>
+    <assembly.format>zip</assembly.format> <!-- Always build the zip file. Integration test needs it -->
   </properties>
 
   <profiles>
@@ -79,6 +79,7 @@
               </descriptors>
               <formats>
                 <format>${assembly.format}</format>
+                <format>zip</format>
               </formats>
             </configuration>
           </execution>

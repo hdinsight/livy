@@ -192,7 +192,8 @@ class SparkYarnApp(
         try {
           if (!process.fold(true) { _.isAlive }) {
             // Before getting the appId, if there's a spark-submit process and it dies, quit.
-            throw new Exception(s"spark-submit exited with code ${process.get.exitValue()}.")
+            throw new Exception(s"spark-submit exited with code ${process.get.exitValue()}.\n" +
+              s"${process.get.inputLines.mkString("\n")}")
           }
           Await.ready(appIdFuture, SparkYarnApp.POLL_INTERVAL)
         } catch {

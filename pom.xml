@@ -47,6 +47,7 @@
     <hadoop.scope>compile</hadoop.scope>
     <spark.scope>compile</spark.scope>
     <commons-codec.version>1.9</commons-codec.version>
+    <commons-io.version>2.4</commons-io.version>
     <curator.version>2.7.1</curator.version>
     <dispatch.version>0.11.2</dispatch.version>
     <guava.version>14.0.1</guava.version>
@@ -174,6 +175,7 @@
     <module>client-common</module>
     <module>client-local</module>
     <module>client-http</module>
+    <module>integration-test</module>
   </modules>
 
   <dependencies>
@@ -256,6 +258,12 @@
         <groupId>commons-codec</groupId>
         <artifactId>commons-codec</artifactId>
         <version>${commons-codec.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>commons-io</groupId>
+        <artifactId>commons-io</artifactId>
+        <version>${commons-io.version}</version>
       </dependency>
 
       <dependency>
@@ -680,9 +688,20 @@
           <executions>
             <execution>
               <id>test</id>
-              <goals>
-                <goal>test</goal>
-              </goals>
+              <goals><goal>test</goal></goals>
+              <configuration>
+                <suffixes>(?&lt;!IT)</suffixes>
+              </configuration>
+            </execution>
+            <execution>
+              <id>integration-test</id>
+              <phase>integration-test</phase>
+              <goals><goal>test</goal></goals>
+              <configuration>
+                <testsFiles></testsFiles>
+                <suffixes>(?&lt;=IT)</suffixes>
+                <skipTests>${skipITs}</skipTests>
+              </configuration>
             </execution>
           </executions>
         </plugin>
