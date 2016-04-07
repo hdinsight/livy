@@ -152,13 +152,20 @@ class InteractiveSessionServlet(
 
   jpost[ExecuteRequest]("/:id/statements") { req =>
     withSession { session =>
-      val statement = session.executeStatement(req)
+      if (session.state == SessionState.Busy())
+      {
+        InternalServerError("Server still busy running previous statement.")
+      }
+      else
+      {
+        val statement = session.executeStatement(req)
 
-      Created(statementView(statement),
-        headers = Map(
-          "Location" -> url(getStatement,
-            "id" -> session.id.toString,
-            "statementId" -> statement.id.toString)))
+        Created(statementView(statement),
+          headers = Map(
+            "Location" -> url(getStatement,
+              "id" -> session.id.toString,
+              "statementId" -> statement.id.toString)))
+      }
     }
   }
 
