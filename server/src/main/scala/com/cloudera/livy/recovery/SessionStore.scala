@@ -24,6 +24,7 @@ import com.cloudera.livy.server.batch.BatchSession
 import com.cloudera.livy.server.interactive.InteractiveSession
 import com.cloudera.livy.sessions.{Kind, Session}
 import com.cloudera.livy.Utils.failWithLogging
+import com.cloudera.livy.server.testpoint.TestpointManager
 
 case class InteractiveSessionMetadata(
   replUrl: Option[URL],
@@ -67,6 +68,9 @@ class SessionStore(livyConf: LivyConf) extends Logging {
   def set(session: Session): Unit = synchronized {
     val sessionType = getSessionType(session)
 
+    session.appId.foreach(_ =>
+      TestpointManager.get.checkpoint("SessionStore.set.beforeStoringAppId"))
+
     // Update nextSessionId in SessionManagerState.
     nextSessionId = Math.max(nextSessionId, session.id + 1)
     store.set(generateSessionManagerStatePath(sessionType), SessionManagerState(nextSessionId))
@@ -83,6 +87,9 @@ class SessionStore(livyConf: LivyConf) extends Logging {
       session.appId,
       interactiveMetadata)
     store.set(generateSessionPath(session), metadata)
+
+    session.appId.foreach(_ =>
+      TestpointManager.get.checkpoint("SessionStore.set.afterStoringAppId"))
   }
 
   /**

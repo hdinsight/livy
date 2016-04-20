@@ -31,6 +31,7 @@ import org.scalatra._
 import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging}
 import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.server.SessionServlet
+import com.cloudera.livy.server.testpoint.TestpointManager
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
 
@@ -96,6 +97,7 @@ class InteractiveSessionServlet(
   jpost[CallbackRequest]("/:id/callback") { callback =>
     withUnprotectedSession { session =>
       if (session.state == SessionState.Starting()) {
+        TestpointManager.get.checkpoint("InteractiveSessionServlet.set.beforeStoringCallback")
         session.url = new URL(callback.url)
         Accepted()
       } else if (session.state.isActive) {

@@ -20,10 +20,9 @@ package com.cloudera.livy.server.interactive
 
 import java.io.File
 import java.lang.ProcessBuilder.Redirect
-import java.net.{ConnectException, URL}
+import java.net.URL
 import java.nio.file.{Files, Paths}
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
@@ -37,6 +36,7 @@ import org.json4s.jackson.Serialization.write
 
 import com.cloudera.livy.{ExecuteRequest, LivyConf, Logging, Utils}
 import com.cloudera.livy.recovery.{RecoverableSession, SessionStore}
+import com.cloudera.livy.server.testpoint.TestpointManager
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
 import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
@@ -60,9 +60,14 @@ object InteractiveSession {
       sessionStore: SessionStore): InteractiveSession = {
     val builder: SparkProcessBuilder = buildRequest(id, livyConf, request)
     val kind = request.kind
+    var kindString = kind.toString
+
+    if (TestpointManager.get.checkpoint("InteractiveSession.create.badKind")) {
+      kindString = "BadKind"
+    }
 
     val create = { (s: InteractiveSession) =>
-      SparkApp.create(s.uuid, builder, None, List(kind.toString), livyConf, Option(s))
+      SparkApp.create(s.uuid, builder, None, List(kindString), livyConf, Option(s))
     }
 
     val uuid = UUID.randomUUID().toString

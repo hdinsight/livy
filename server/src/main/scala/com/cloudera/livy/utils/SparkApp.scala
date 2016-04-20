@@ -22,6 +22,8 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 import com.cloudera.livy.{LivyConf, Logging}
+import com.cloudera.livy.server.testpoint.TestpointManager
+import com.cloudera.livy.util.LineBufferedProcess
 
 trait SparkAppListener {
   /**
@@ -66,8 +68,14 @@ object SparkApp extends Logging {
       builder.conf("spark.yarn.maxAppAttempts", "1")
 
       listener.foreach(_.startingApp())
-      val process = builder.start(file, args)
-      new SparkYarnApp(getAppIdFromTagAsync(uuidToAppTag(uuid)), Option(process), listener)
+      val process: Option[LineBufferedProcess] = {
+        if (TestpointManager.get.checkpoint("SparkApp.create.skipSparkSubmit")) {
+          None
+        } else {
+          Option(builder.start(file, args))
+        }
+      }
+      new SparkYarnApp(getAppIdFromTagAsync(uuidToAppTag(uuid)), process, listener)
     } else {
       new SparkProcApp(builder.start(file, args), listener)
     }

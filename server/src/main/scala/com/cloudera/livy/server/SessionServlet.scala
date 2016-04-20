@@ -25,6 +25,7 @@ import scala.concurrent.Future
 import org.scalatra._
 
 import com.cloudera.livy.{LivyConf, Logging}
+import com.cloudera.livy.server.testpoint.TestpointManager
 import com.cloudera.livy.sessions.{Session, SessionManager}
 
 object SessionServlet extends Logging
@@ -71,6 +72,8 @@ abstract class SessionServlet[S <: Session](
     val size = params.get("size").map(_.toInt).getOrElse(100)
 
     val sessions = sessionManager.all()
+
+    TestpointManager.get.checkpoint("SessionServlet.get")
 
     Map(
       "from" -> from,
