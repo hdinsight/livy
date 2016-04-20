@@ -48,7 +48,7 @@ object SparkYarnApp {
   private implicit val ec = ExecutionContext.fromExecutor(
     Executors.newCachedThreadPool(new NonDaemonThreadFactory()))
 
-  private val APP_TAG_TO_ID_TIMEOUT = 5.minutes
+  private val APP_TAG_TO_ID_TIMEOUT = 1.minutes
   private val KILL_TIMEOUT = 1.second
   private val POLL_INTERVAL = 1.second
 
