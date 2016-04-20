@@ -36,6 +36,7 @@ import com.cloudera.livy.recovery.{SessionRecovery, SessionStore, StateStore}
 import com.cloudera.livy.server.batch.BatchSessionServlet
 import com.cloudera.livy.server.client.ClientSessionServlet
 import com.cloudera.livy.server.interactive.InteractiveSessionServlet
+import com.cloudera.livy.server.testpoint.TestpointServlet
 import com.cloudera.livy.util.LineBufferedProcess
 import com.cloudera.livy.utils.SparkYarnApp
 
@@ -93,6 +94,10 @@ object Main extends Logging {
             context.mount(batchSessionServlet, "/batches/*")
             context.mount(new ClientSessionServlet(livyConf), "/clients/*")
             context.mountMetricsAdminServlet("/")
+            if (true || livyConf.get(ENVIRONMENT) == "development") {
+              // We use check livy.test.
+              context.mount(new TestpointServlet, "/testpoint/*")
+            }
           } catch {
             case e: Throwable =>
               error("Exception thrown when initializing server", e)
