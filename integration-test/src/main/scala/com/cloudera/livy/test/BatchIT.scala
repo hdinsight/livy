@@ -150,7 +150,7 @@ class BatchIT extends BaseIntegrationTestSuite {
   private def uploadPySparkTestScript(fileName: String): String = {
     val tmpFile = TestUtils.saveTestSourceToTempFile(fileName)
 
-    val destPath = s"/tmp/${tmpFile.getName}"
+    val destPath = s"/tmp/upload-${tmpFile.getName}"
     cluster.get.upload(tmpFile.getAbsolutePath, destPath)
 
     tmpFile.delete()
