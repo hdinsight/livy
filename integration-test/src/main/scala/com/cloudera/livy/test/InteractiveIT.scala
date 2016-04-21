@@ -103,8 +103,6 @@ class InteractiveIT extends BaseIntegrationTestSuite {
 
       val stateAfterRestart = livyClient.getInteractiveStatus(sessionId)
 
-      stateAfterRestart should equal(SessionState.Busy().toString)
-
       waitTillSessionIdle(sessionId)
 
       // Verify the old statements

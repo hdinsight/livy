@@ -42,7 +42,7 @@ object TestEnvConfig {
     val ip: String = properties.get("real-cluster.ip").get
 
     val sshLogin: String = properties.get("real-cluster.ssh.login").get
-    val sshPubKey: String = properties.get("real-cluster.ssh.pubkey").get
+    val sshPrivateKey: String = properties.get("real-cluster.ssh.privateKey").get
     val livyPort = properties.getOrElse("real-cluster.livy.port", "8998").toInt
     val livyClasspath = properties.get("real-cluster.livy.classpath").get
 

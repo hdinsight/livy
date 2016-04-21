@@ -44,7 +44,7 @@ class RealCluster(
 
   def sshClient[T](body: SshClient => SSH.Result[T]): Validated[T] = {
     val sshLogin = PublicKeyLogin(
-      config.sshLogin, None, config.sshPubKey :: Nil)
+      config.sshLogin, None, config.sshPrivateKey :: Nil)
     val hostConfig = HostConfig(login = sshLogin, hostKeyVerifier = HostKeyVerifiers.DontVerify)
     SSH(ip, hostConfig)(body)
   }
