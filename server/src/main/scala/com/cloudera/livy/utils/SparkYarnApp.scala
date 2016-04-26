@@ -209,9 +209,27 @@ class SparkYarnApp(
 
         Thread.currentThread().setName(s"yarnPollThread_$appId")
 
+        var appInfo = AppInfo()
         while (isRunning) {
+          val appReport = yarnClient.getApplicationReport(appId)
           // Refresh application state
-          setState(mapYarnState(yarnClient.getApplicationReport(appId)))
+          setState(mapYarnState(appReport))
+
+          // Notify listener if app info has changed.
+          val latestAppInfo = {
+            val attempt =
+              yarnClient.getApplicationAttemptReport(appReport.getCurrentApplicationAttemptId)
+            val driverLogUrl =
+              Try(yarnClient.getContainerReport(attempt.getAMContainerId).getLogUrl)
+              .toOption
+            AppInfo(driverLogUrl, Option(appReport.getTrackingUrl))
+          }
+
+          if (appInfo != latestAppInfo) {
+            listener.foreach(_.infoChanged(latestAppInfo))
+            appInfo = latestAppInfo
+          }
+
           Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
         }
 
@@ -231,6 +249,9 @@ class SparkYarnApp(
           error(s"Error whiling polling YARN state: $e")
           finalDiagnosticsLog = ArrayBuffer(e.toString)
           setState(SparkApp.State.FAILED)
+      } finally {
+        // TODO Return url to Spark History Server.
+        listener.foreach(_.infoChanged(AppInfo()))
       }
     }
   }

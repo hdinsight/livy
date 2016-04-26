@@ -19,7 +19,7 @@
 package com.cloudera.livy.recovery
 
 import com.cloudera.livy.sessions.Session
-import com.cloudera.livy.utils.{SparkApp, SparkAppListener}
+import com.cloudera.livy.utils.{AppInfo, SparkAppListener}
 
 trait RecoverableSession extends SparkAppListener { self: Session =>
   val sessionStore: SessionStore
@@ -33,6 +33,7 @@ trait RecoverableSession extends SparkAppListener { self: Session =>
     }
   }
 
-  override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit =
-  {}
+  // TODO Move this to another trait.
+  override def infoChanged(newAppInfo: AppInfo): Unit =
+    appInfo = newAppInfo
 }

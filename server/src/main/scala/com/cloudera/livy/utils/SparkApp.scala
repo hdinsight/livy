@@ -25,18 +25,23 @@ import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.server.testpoint.TestpointManager
 import com.cloudera.livy.util.LineBufferedProcess
 
+case class AppInfo(var driverLogUrl: Option[String] = None, var sparkUiUrl: Option[String] = None)
+
 trait SparkAppListener {
   /**
    * Fired only when a new app on the cluster is being launched.
    * It won't be fired uring recovery.
    */
-  def startingApp(): Unit
+  def startingApp(): Unit = {}
 
   /** Fired when appId is known, even during recovery. */
-  def appIdKnown(appId: String): Unit
+  def appIdKnown(appId: String): Unit = {}
 
   /** Fired when the app state in the cluster changes. */
-  def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit
+  def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {}
+
+  /** Fired when the app info is changed. */
+  def infoChanged(appInfo: AppInfo): Unit = {}
 }
 
 /**

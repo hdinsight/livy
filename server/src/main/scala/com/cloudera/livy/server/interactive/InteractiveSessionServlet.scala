@@ -79,6 +79,7 @@ class InteractiveSessionServlet(
       "kind" -> session.kind.toString,
       "proxyUser" -> session.proxyUser,
       "appId" -> session.appId,
+      "appInfo" -> session.appInfo,
       "log" -> logs)
   }
 
