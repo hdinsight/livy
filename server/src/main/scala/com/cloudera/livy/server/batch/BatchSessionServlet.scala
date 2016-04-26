@@ -24,8 +24,14 @@ import com.cloudera.livy.LivyConf
 import com.cloudera.livy.recovery.SessionStore
 import com.cloudera.livy.server.SessionServlet
 import com.cloudera.livy.sessions.SessionManager
+import com.cloudera.livy.utils.AppInfo
 
-case class BatchSessionView(id: Long, state: String, appId: Option[String], log: Seq[String])
+case class BatchSessionView(
+  id: Long,
+  state: String,
+  appId: Option[String],
+  appInfo: AppInfo,
+  log: Seq[String])
 
 class BatchSessionServlet(
     sessionManager: SessionManager[BatchSession],
@@ -56,6 +62,6 @@ class BatchSessionServlet(
       } else {
         Nil
       }
-    BatchSessionView(session.id, session.state.toString, session.appId, logs)
+    BatchSessionView(session.id, session.state.toString, session.appId, session.appInfo, logs)
   }
 }
