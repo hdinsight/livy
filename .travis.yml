@@ -16,12 +16,14 @@ addons:
       r-base
 
 script:
-  - mvn verify -Dtest.redirectToFile=false
+  - mvn verify -DskipITs=true -Dtest.redirectToFile=false
 
 before_install:
   - wget $MVN_SETTINGS_URL -O $HOME/.m2/settings.xml
   - npm list -g azure-cli --depth=0 || npm install -g azure-cli
   - pip install --user codecov
+
+install: true
 
 after_success:
   - codecov
