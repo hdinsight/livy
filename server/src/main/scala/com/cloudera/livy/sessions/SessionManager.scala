@@ -26,6 +26,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.recovery.SessionStore
+import com.cloudera.livy.utils.MetricsEmitter
 
 object SessionManager {
   val SESSION_TIMEOUT = LivyConf.Entry("livy.server.session.timeout", "1h")
@@ -73,6 +74,7 @@ class SessionManager[S <: Session](
         sessionStore.foreach(_.remove(session))
         sessions.remove(session.id)
         info(s"Deleted new session ${session.getClass.getSimpleName} ${session.id}")
+        MetricsEmitter.EmitSessionDeletedEvent(session.getClass.getSimpleName, session.id)
       }
     }
   }

@@ -39,7 +39,7 @@ import com.cloudera.livy.recovery.{RecoverableSession, SessionStore}
 import com.cloudera.livy.server.testpoint.TestpointManager
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.interactive.Statement
-import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
+import com.cloudera.livy.utils.{MetricsEmitter, SparkApp, SparkProcessBuilder}
 
 object InteractiveSession {
   val LivyReplAdditionalFiles = "livy.repl.additional.files"
@@ -61,6 +61,8 @@ object InteractiveSession {
     val builder: SparkProcessBuilder = buildRequest(id, livyConf, request)
     val kind = request.kind
     var kindString = kind.toString
+
+    MetricsEmitter.EmitSessionStartingEvent("InteractiveSession", id)
 
     if (TestpointManager.get.checkpoint("InteractiveSession.create.badKind")) {
       kindString = "BadKind"
@@ -85,6 +87,8 @@ object InteractiveSession {
       replUrl: Option[URL],
       sessionStore: SessionStore,
       livyConf: LivyConf): InteractiveSession = {
+    MetricsEmitter.EmitSessionRecoveringEvent("InteractiveSession", id)
+
     val recover = { (s: InteractiveSession) =>
       SparkApp.recover(uuid, appId, livyConf, Option(s))
     }
@@ -405,8 +409,10 @@ class InteractiveSession private (
       newState match {
         case SparkApp.State.FINISHED =>
           _state = SessionState.Success()
+          MetricsEmitter.EmitSessionSucceededEvent(getClass.getSimpleName, id)
         case SparkApp.State.KILLED | SparkApp.State.FAILED =>
           _state = SessionState.Dead()
+          MetricsEmitter.EmitSessionFailedEvent(getClass.getSimpleName, id, newState.toString)
         case _ =>
       }
     }
@@ -416,7 +422,8 @@ class InteractiveSession private (
     if (url.isEmpty) {
       serverSideLog += "Unable to recover this session because livy-server crashed while " +
         "livy-repl was still starting."
-      transition(SessionState.Error())
+      transition(SessionState.Dead())
+      MetricsEmitter.EmitSessionFailedEvent(getClass.getSimpleName, id)
     } else {
       startStatementsRecovery()
     }

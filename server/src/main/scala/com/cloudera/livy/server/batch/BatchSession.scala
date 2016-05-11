@@ -26,7 +26,7 @@ import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import com.cloudera.livy.LivyConf
 import com.cloudera.livy.recovery.{RecoverableSession, SessionStore}
 import com.cloudera.livy.sessions.{Session, SessionState}
-import com.cloudera.livy.utils.{SparkApp, SparkProcessBuilder}
+import com.cloudera.livy.utils.{MetricsEmitter, SparkApp, SparkProcessBuilder}
 
 object BatchSession {
   def create(
@@ -36,6 +36,7 @@ object BatchSession {
       sessionStore: SessionStore,
       livyConf: LivyConf): BatchSession = {
     val builder = buildRequest(request, livyConf)
+    MetricsEmitter.EmitSessionStartingEvent("BatchSession", id)
     val create = { (s: BatchSession) =>
       SparkApp.create(s.uuid, builder, Option(request.file), request.args, livyConf, Option(s))
     }
@@ -49,6 +50,7 @@ object BatchSession {
       owner: String,
       sessionStore: SessionStore,
       livyConf: LivyConf): BatchSession = {
+    MetricsEmitter.EmitSessionRecoveringEvent("BatchSession", id)
     val recover = { (s: BatchSession) =>
       SparkApp.recover(uuid, appId, livyConf, Option(s))
     }
@@ -120,8 +122,10 @@ class BatchSession private (
       newState match {
         case SparkApp.State.FINISHED =>
           _state = SessionState.Success()
+          MetricsEmitter.EmitSessionSucceededEvent(getClass.getSimpleName, id)
         case SparkApp.State.KILLED | SparkApp.State.FAILED =>
           _state = SessionState.Dead()
+          MetricsEmitter.EmitSessionFailedEvent(getClass.getSimpleName, id, newState.toString)
         case _ =>
       }
     }

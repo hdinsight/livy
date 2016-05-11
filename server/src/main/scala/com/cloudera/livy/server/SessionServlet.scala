@@ -20,6 +20,8 @@ package com.cloudera.livy.server
 
 import javax.servlet.http.HttpServletRequest
 
+import com.cloudera.livy.utils.MetricsEmitter
+
 import scala.concurrent.Future
 
 import org.scalatra._
@@ -125,6 +127,9 @@ abstract class SessionServlet[S <: Session](
     new AsyncResult {
       val is = Future {
         val session = sessionManager.register(createSession(request))
+
+        MetricsEmitter.EmitSessionCreatedEvent(session.getClass.getSimpleName, session.id)
+
         // Because it may take some time to establish the session, update the last activity
         // time before returning the session info to the client.
         session.recordActivity()
