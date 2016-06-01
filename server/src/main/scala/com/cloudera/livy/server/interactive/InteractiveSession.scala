@@ -208,12 +208,13 @@ class InteractiveSession private (
     val proxyUser: Option[String],
     appCreator: (InteractiveSession) => SparkApp,
     val sessionStore: SessionStore,
-    livyConf: LivyConf,
+    var livyConf: LivyConf,
     recovery: Boolean,
     appId: Option[String] = None,
     private[this] var _url: Option[URL] = None)
   extends Session(id, owner, uuid, appId)
   with RecoverableSession
+  with SessionHeartbeat
   with Logging {
 
   private val app = appCreator(this)

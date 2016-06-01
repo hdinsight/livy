@@ -42,6 +42,7 @@ class InteractiveSessionServlet(
     sessionStore: SessionStore,
     livyConf: LivyConf)
   extends SessionServlet[InteractiveSession](livyConf, sessionManager)
+  with SessionHeartbeatNotifier[InteractiveSession]
 {
 
   mapper.registerModule(new SessionKindModule())
