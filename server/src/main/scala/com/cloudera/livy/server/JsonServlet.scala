@@ -24,7 +24,7 @@ import scala.concurrent.ExecutionContext
 import scala.reflect.ClassTag
 
 import com.fasterxml.jackson.core.JsonParseException
-import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
 import org.scalatra._
 
 /**
@@ -42,6 +42,8 @@ abstract class JsonServlet extends ScalatraServlet with ApiFormats with FutureSu
 
   private lazy val _defaultMapper = new ObjectMapper()
     .registerModule(com.fasterxml.jackson.module.scala.DefaultScalaModule)
+    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
+    .configure(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY, true)
 
   /**
    * Override this method if you need a custom Jackson object mapper; the default mapper
