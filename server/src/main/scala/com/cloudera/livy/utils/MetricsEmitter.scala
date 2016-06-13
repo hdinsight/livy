@@ -18,8 +18,9 @@
 
 package com.cloudera.livy.utils
 
-import com.cloudera.livy.Logging
 import com.fasterxml.jackson.databind.ObjectMapper
+
+import com.cloudera.livy.Logging
 
 object MetricsEmitter extends Logging {
 
@@ -66,7 +67,10 @@ object MetricsEmitter extends Logging {
     info(s"Metrics: ${eventString}")
   }
 
-  def EmitSessionFailedEvent (sessionType: String, sessionId: Int, yarnState: String = "N/A"): Unit = {
+  def EmitSessionFailedEvent(
+    sessionType: String,
+    sessionId: Int,
+    yarnState: String = "N/A"): Unit = {
     val eventString = mapper.writeValueAsString(
       new MetricsEvent("SessionFailed", sessionType, sessionId, yarnState))
 

@@ -20,8 +20,6 @@ package com.cloudera.livy.server
 
 import javax.servlet.http.HttpServletRequest
 
-import com.cloudera.livy.utils.MetricsEmitter
-
 import scala.concurrent.Future
 
 import org.scalatra._
@@ -29,6 +27,7 @@ import org.scalatra._
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.server.testpoint.TestpointManager
 import com.cloudera.livy.sessions.{Session, SessionManager}
+import com.cloudera.livy.utils.MetricsEmitter
 
 object SessionServlet extends Logging
 
