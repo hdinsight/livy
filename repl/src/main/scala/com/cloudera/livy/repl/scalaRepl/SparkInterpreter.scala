@@ -243,22 +243,36 @@ class SparkInterpreter extends Interpreter {
     lines match {
       case Nil => result
       case head :: tail =>
-        val result = executeLine(head)
+        val localResult = executeLine(head)
 
-        result match {
+        localResult match {
           case Interpreter.ExecuteIncomplete() =>
             tail match {
               case Nil =>
-                result
+                // In case of last statement is incomplete, we need to distinguish if it is
+                // really incomplete or it is just comments.
+                // To do that, reissue the same statement wrapped in { }. If it is real error,
+                // it should still come back as error. But we will return the original error back.
+                // If it is comment, this will return with no error. We will then return the result
+                // of last successful statement.
+                //
+                val newResult = executeLine("{\n" + head + "\n}")
+
+                newResult match {
+                  case Interpreter.ExecuteIncomplete() | Interpreter.ExecuteError(_, _, _) =>
+                    localResult
+                  case _ =>
+                    result
+                }
 
               case next :: nextTail =>
                 executeLines(head + "\n" + next :: nextTail, result)
             }
           case Interpreter.ExecuteError(_, _, _) =>
-            result
+            localResult
 
           case _ =>
-            executeLines(tail, result)
+            executeLines(tail, localResult)
         }
     }
   }
