@@ -72,7 +72,12 @@ class ExecutionError(Exception):
 
 class NormalNode(object):
     def __init__(self, code):
-        self.code = compile(code, '<stdin>', 'exec', ast.PyCF_ONLY_AST, 1)
+        try:
+            self.code = compile(code, '<stdin>', 'exec', ast.PyCF_ONLY_AST, 1)
+        except SyntaxError:
+            raise
+        except Exception as e:
+            raise SyntaxError(e)
 
     def execute(self):
         to_run_exec, to_run_single = self.code.body[:-1], self.code.body[-1:]
