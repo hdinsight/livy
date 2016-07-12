@@ -70,7 +70,6 @@ object SparkApp extends Logging {
     if (livyConf.isSparkMasterYarn) {
       val appTag = uuidToAppTag(uuid)
       builder.conf("spark.yarn.tags", appTag)
-      builder.conf("spark.yarn.maxAppAttempts", "1")
 
       listener.foreach(_.startingApp())
       val process: Option[LineBufferedProcess] = {

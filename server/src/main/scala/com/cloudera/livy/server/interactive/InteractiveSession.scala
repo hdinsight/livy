@@ -69,6 +69,9 @@ object InteractiveSession {
     }
 
     val create = { (s: InteractiveSession) =>
+      if (livyConf.isSparkMasterYarn) {
+        builder.conf("spark.yarn.maxAppAttempts", "1")
+      }
       SparkApp.create(s.uuid, builder, None, List(kindString), livyConf, Option(s))
     }
 
