@@ -211,26 +211,38 @@ class SparkYarnApp(
 
         var appInfo = AppInfo()
         while (isRunning) {
-          val appReport = yarnClient.getApplicationReport(appId)
-          // Refresh application state
-          setState(mapYarnState(appReport))
+          try {
+            // This try catch block is needed to work around a yarn client bug.
+            // Yarn JIRA: YARN-4411
+            val appReport = yarnClient.getApplicationReport(appId)
+            // Refresh application state
+            setState(mapYarnState(appReport))
 
-          // Notify listener if app info has changed.
-          val latestAppInfo = {
-            val attempt =
-              yarnClient.getApplicationAttemptReport(appReport.getCurrentApplicationAttemptId)
-            val driverLogUrl =
-              Try(yarnClient.getContainerReport(attempt.getAMContainerId).getLogUrl)
-              .toOption
-            AppInfo(driverLogUrl, Option(appReport.getTrackingUrl))
+            // Notify listener if app info has changed.
+            val latestAppInfo = {
+              val attempt =
+                yarnClient.getApplicationAttemptReport(appReport.getCurrentApplicationAttemptId)
+              val driverLogUrl =
+                Try(yarnClient.getContainerReport(attempt.getAMContainerId).getLogUrl)
+                .toOption
+              AppInfo(driverLogUrl, Option(appReport.getTrackingUrl))
+            }
+
+            if (appInfo != latestAppInfo) {
+              listener.foreach(_.infoChanged(latestAppInfo))
+              appInfo = latestAppInfo
+            }
+
+            Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
+          } catch {
+            case e: IllegalArgumentException =>
+              if (!e.getMessage().contains("YarnApplicationAttemptState.FINAL_SAVING")) {
+                throw e
+              } else {
+                // else, just ignore and assuming the state will transition into FINISHED/FAILED later
+                logger.warn("Encountered YarnApplicationAttemptState.FINAL_SAVING. Not changing state.")
+              }
           }
-
-          if (appInfo != latestAppInfo) {
-            listener.foreach(_.infoChanged(latestAppInfo))
-            appInfo = latestAppInfo
-          }
-
-          Thread.sleep(SparkYarnApp.POLL_INTERVAL.toMillis)
         }
 
         // Log final YARN diagnostics for better error reporting.
