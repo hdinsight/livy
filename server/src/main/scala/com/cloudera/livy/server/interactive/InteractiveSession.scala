@@ -40,6 +40,7 @@ import com.cloudera.livy._
 import com.cloudera.livy.client.common.HttpMessages._
 import com.cloudera.livy.rsc.{PingJob, RSCClient, RSCConf}
 import com.cloudera.livy.sessions._
+import com.cloudera.livy.sessions.Session.RecoveryMetadata
 import com.cloudera.livy.utils.{AppInfo, SparkApp, SparkAppListener}
 
 object InteractiveSession {
@@ -154,7 +155,7 @@ class InteractiveSession(
       if (livyConf.isRunningOnYarn()) {
         // When Livy is running with YARN, SparkYarnApp can provide better YARN integration.
         // (e.g. Reflect YARN application state to session state).
-        Option(SparkApp.create(uniqueAppTag, None, livyConf, Some(this)))
+        Option(SparkApp.create(uniqueAppTag, None, None, livyConf, Some(this)))
       } else {
         // When Livy is running with other cluster manager, SparkApp doesn't provide any additional
         // benefit over controlling RSCDriver using RSCClient. Don't use it.
@@ -194,6 +195,10 @@ class InteractiveSession(
   private[this] var _statements = IndexedSeq[Statement]()
 
   override def logLines(): IndexedSeq[String] = app.map(_.log()).getOrElse(IndexedSeq.empty)
+
+  override def recoveryMetadata: RecoveryMetadata = {
+    throw new NotImplementedError("TODO")
+  }
 
   override def state: SessionState = _state
 
