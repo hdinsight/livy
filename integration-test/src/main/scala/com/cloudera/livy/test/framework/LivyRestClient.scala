@@ -99,7 +99,7 @@ class LivyRestClient(val httpClient: AsyncHttpClient, val livyEndpoint: String) 
       // Keeping the original timeout to avoid slowing down local development.
       eventually(timeout(t), interval(1 second)) {
         val s = snapshot().state
-        assert(strStates.contains(s), s"Session state $s doesn't equal one of $strStates")
+        assert(strStates.contains(s), s"Session $id state $s doesn't equal one of $strStates")
       }
     }
 
@@ -149,7 +149,7 @@ class LivyRestClient(val httpClient: AsyncHttpClient, val livyEndpoint: String) 
             case "error" =>
               Right(mapper.convertValue(output, classOf[StatementError]))
             case status =>
-              throw new Exception(s"Unknown statement status: $status")
+              throw new Exception(s"Unknown statement $stmtId status: $status")
           }
         }
       }
@@ -161,7 +161,7 @@ class LivyRestClient(val httpClient: AsyncHttpClient, val livyEndpoint: String) 
               matchStrings(result, expectedRegex)
             }
           case Right(error) =>
-            assert(false, s"Got error from statement $code: ${error.evalue}")
+            assert(false, s"Got error from statement $stmtId $code: ${error.evalue}")
         }
       }
 
@@ -169,7 +169,7 @@ class LivyRestClient(val httpClient: AsyncHttpClient, val livyEndpoint: String) 
           ename: String = null, evalue: String = null, stackTrace: String = null): Unit = {
         result() match {
           case Left(result) =>
-            assert(false, s"Statement `$code` expected to fail, but succeeded.")
+            assert(false, s"Statement $stmtId `$code` expected to fail, but succeeded.")
           case Right(error) =>
             val remoteStack = Option(error.stackTrace).getOrElse(Nil).mkString("\n")
             Seq(error.ename -> ename, error.evalue -> evalue, remoteStack -> stackTrace)
