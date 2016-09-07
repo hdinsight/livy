@@ -27,6 +27,7 @@ import org.apache.hadoop.yarn.api.records.YarnApplicationState
 import org.scalatest.OptionValues._
 
 import com.cloudera.livy.rsc.RSCConf
+import com.cloudera.livy.server.interactive.InteractiveSession.TEST_CONF_DONT_PERSIST_RSC_DRIVER_URI
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.test.framework.{BaseIntegrationTestSuite, LivyRestClient}
 
@@ -122,6 +123,45 @@ class InteractiveIT extends BaseIntegrationTestSuite {
       s.run("val rdd = sc.parallelize(Array.fill(10){new Item(scala.util.Random.nextInt(1000))})")
         .verifyResult("rdd.*")
       s.run("rdd.count()").verifyResult(".*= 10")
+    }
+  }
+
+  test("recover interactive session") {
+    withNewSession(Spark()) { s =>
+      withNewSession(Spark()) { ds =>
+        ds.stop()
+        s.verifySessionIdle()
+        s.run("1").verifyResult("res0: Int = 1")
+
+        // Restart Livy.
+        cluster.stopLivy()
+        cluster.runLivy()
+
+        // Verify session still exists.
+        s.verifySessionIdle()
+        s.run("2").verifyResult("res1: Int = 2")
+        // TODO, verify previous statement results still exist.
+
+        // Verify deleted session doesn't show up.
+        ds.verifySessionDoesNotExist()
+
+        // Verify new session doesn't reuse old session id.
+        withNewSession(Spark()) { s1 =>
+          s1.id should be > s.id
+        }
+      }
+    }
+  }
+
+  test("unrecoverable session should go to dead state") {
+    withNewSession(Spark(), Map(TEST_CONF_DONT_PERSIST_RSC_DRIVER_URI -> "true")) { s =>
+      s.verifySessionIdle()
+
+      // Restart Livy.
+      cluster.stopLivy()
+      cluster.runLivy()
+
+      s.verifySessionState(SessionState.Dead())
     }
   }
 

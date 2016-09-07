@@ -17,10 +17,10 @@
  */
 package com.cloudera.livy.server.recovery
 
+import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
 import com.cloudera.livy.{LivyConf, Logging}
-import com.cloudera.livy.server.batch.BatchRecoveryMetadata
 import com.cloudera.livy.sessions.Session.RecoveryMetadata
 
 private[recovery] case class SessionManagerState(nextSessionId: Int)
@@ -34,16 +34,16 @@ class SessionStore(
   extends Logging {
 
   private val STORE_VERSION: String = "v1"
-  private var nextSessionId = 0
+  private var nextSessionIds = mutable.Map[String, Int]()
 
   /**
    * Persist a session to the session state store.
    * @param m RecoveryMetadata for the session.
    */
   def save(sessionType: String, m: RecoveryMetadata): Unit = synchronized {
-    // Update nextSessionId in SessionManagerState.
-    nextSessionId = Math.max(nextSessionId, m.id + 1)
-    store.set(sessionManagerPath(sessionType), SessionManagerState(nextSessionId))
+    // Update nextSessionIds in SessionManagerState.
+    nextSessionIds += (sessionType -> Math.max(nextSessionIds.getOrElse(sessionType, 0), m.id + 1))
+    store.set(sessionManagerPath(sessionType), SessionManagerState(nextSessionIds(sessionType)))
 
     store.set(sessionPath(sessionType, m.id), m)
   }

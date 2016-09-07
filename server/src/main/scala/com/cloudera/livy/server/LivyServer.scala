@@ -78,6 +78,7 @@ class LivyServer extends Logging {
     StateStore.init(livyConf)
     val sessionStore = new SessionStore(livyConf)
     val sessionRecovery = new SessionRecovery(sessionStore, livyConf)
+    val interactiveSessionManager = sessionRecovery.recoverInteractiveSessions()
     val batchSessionManager = sessionRecovery.recoverBatchSessions()
 
     server = new WebServer(livyConf, host, port)
@@ -100,7 +101,9 @@ class LivyServer extends Logging {
             val context = sce.getServletContext()
             context.initParameters(org.scalatra.EnvironmentKey) = livyConf.get(ENVIRONMENT)
 
-            mount(context, new InteractiveSessionServlet(livyConf), "/sessions/*")
+            val interactieServlet = new InteractiveSessionServlet(
+              interactiveSessionManager, sessionStore, livyConf)
+            mount(context, interactieServlet, "/sessions/*")
 
             val batchServlet = new BatchSessionServlet(batchSessionManager, sessionStore, livyConf)
             mount(context, batchServlet, "/batches/*")

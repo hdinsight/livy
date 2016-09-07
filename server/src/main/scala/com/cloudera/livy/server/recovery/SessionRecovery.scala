@@ -19,6 +19,7 @@ package com.cloudera.livy.server.recovery
 
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.server.batch.{BatchRecoveryMetadata, BatchSession}
+import com.cloudera.livy.server.interactive.{InteractiveRecoveryMetadata, InteractiveSession}
 import com.cloudera.livy.sessions.{Session, SessionManager}
 import com.cloudera.livy.sessions.Session.RecoveryMetadata
 
@@ -33,6 +34,13 @@ class SessionRecovery(sessionStore: SessionStore, livyConf: LivyConf) extends Lo
       BatchSession.RECOVERY_SESSION_TYPE, classOf[BatchRecoveryMetadata]) {
         BatchSession.recover(_, livyConf, sessionStore)
       }
+  }
+
+  def recoverInteractiveSessions(): SessionManager[InteractiveSession] = {
+    recover[InteractiveSession, InteractiveRecoveryMetadata] (
+      InteractiveSession.RECOVERY_SESSION_TYPE, classOf[InteractiveRecoveryMetadata]) {
+      InteractiveSession.recover(_, livyConf, sessionStore)
+    }
   }
 
   private[recovery] def recover[S <: Session, R <: RecoveryMetadata]

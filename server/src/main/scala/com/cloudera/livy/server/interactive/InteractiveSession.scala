@@ -30,6 +30,7 @@ import scala.collection.mutable
 import scala.concurrent.{Future, _}
 import scala.util.{Failure, Random, Success, Try}
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import org.apache.spark.launcher.SparkLauncher
 import org.json4s._
 import org.json4s.{DefaultFormats, Formats, JValue}
@@ -39,22 +40,75 @@ import org.json4s.jackson.JsonMethods._
 import com.cloudera.livy._
 import com.cloudera.livy.client.common.HttpMessages._
 import com.cloudera.livy.rsc.{PingJob, RSCClient, RSCConf}
+import com.cloudera.livy.server.recovery.SessionStore
 import com.cloudera.livy.sessions._
 import com.cloudera.livy.sessions.Session.RecoveryMetadata
+import com.cloudera.livy.sessions.SessionState.Dead
 import com.cloudera.livy.utils.{AppInfo, SparkApp, SparkAppListener}
 
+@JsonIgnoreProperties(ignoreUnknown = true)
+case class InteractiveRecoveryMetadata(
+    id: Int,
+    appTag: String,
+    appId: Option[String],
+    owner: String,
+    proxyUser: Option[String],
+    kind: Kind,
+    rscDriverUri: Option[URI],
+    version: Int = 1)
+  extends RecoveryMetadata
+
 object InteractiveSession {
-  val LivyReplJars = "livy.repl.jars"
-  val SparkYarnIsPython = "spark.yarn.isPython"
+  private[interactive] val LIVY_REPL_JARS = "livy.repl.jars"
+  private[interactive] val SPARK_YARN_IS_PYTHON = "spark.yarn.isPython"
+
+  val RECOVERY_SESSION_TYPE = "interactive"
+  val TEST_CONF_DONT_PERSIST_RSC_DRIVER_URI = "doNotPersistRscDriverUri"
+
+  def create(
+      id: Int,
+      owner: String,
+      proxyUser: Option[String],
+      livyConf: LivyConf,
+      request: CreateInteractiveRequest,
+      sessionStore: SessionStore,
+      mockApp: Option[SparkApp] = None,
+      mockClient: Option[RSCClient] = None): InteractiveSession = {
+    val appTag = s"livy-session-$id-${Random.alphanumeric.take(8).mkString}"
+    new InteractiveSession(
+      id, appTag, owner, proxyUser, livyConf, Left(request), sessionStore, mockApp, mockClient)
+  }
+
+  def recover(
+      metadata: InteractiveRecoveryMetadata,
+      livyConf: LivyConf,
+      sessionStore: SessionStore,
+      mockApp: Option[SparkApp] = None,
+      mockClient: Option[RSCClient] = None): InteractiveSession = {
+    new InteractiveSession(
+      metadata.id,
+      metadata.appTag,
+      metadata.owner,
+      metadata.proxyUser,
+      livyConf,
+      Right((metadata.kind, metadata.rscDriverUri, metadata.appId)),
+      sessionStore,
+      mockApp,
+      mockClient)
+  }
 }
 
 class InteractiveSession(
     id: Int,
+    appTag: String,
     owner: String,
     override val proxyUser: Option[String],
     livyConf: LivyConf,
-    request: CreateInteractiveRequest,
-    mockApp: Option[SparkApp] = None) // For unit test.
+    // Use Left to create a new session, Right to recover an existing session.
+    createOrRecover: Either[CreateInteractiveRequest, (Kind, Option[URI], Option[String])],
+    sessionStore: SessionStore,
+    mockApp: Option[SparkApp],
+    mockClient: Option[RSCClient]) // For unit test.
   extends Session(id, owner, livyConf)
   with SparkAppListener {
 
@@ -62,150 +116,191 @@ class InteractiveSession(
 
   private implicit def jsonFormats: Formats = DefaultFormats
 
-  private var _state: SessionState = SessionState.Starting()
+  private var _state: SessionState =
+    createOrRecover.fold(_ => SessionState.Starting(), _ => SessionState.Recovering())
 
   private val operations = mutable.Map[Long, String]()
   private val operationCounter = new AtomicLong(0)
+  private var rscDriverUri: Option[URI] = None
+  private var sessionLog: IndexedSeq[String] = IndexedSeq.empty
 
-  val kind = request.kind
+  private val (_kind: Kind, client: Option[RSCClient], app: Option[SparkApp]) = {
+    def prepareBuilderProp(conf: Map[String, String], kind: Kind): mutable.Map[String, String] = {
+      val builderProperties = mutable.Map[String, String]()
+      builderProperties ++= conf
 
-  private val (client: RSCClient, app: Option[SparkApp]) = {
-    val uniqueAppTag = s"livy-session-$id-${Random.alphanumeric.take(8).mkString}"
+      def mergeConfList(list: Seq[String], key: String): Unit = {
+        if (list.nonEmpty) {
+          builderProperties.get(key) match {
+            case None =>
+              builderProperties.put(key, list.mkString(","))
+            case Some(oldList) =>
+              val newList = (oldList :: list.toList).mkString(",")
+              builderProperties.put(key, newList)
+          }
+        }
+      }
 
-    val conf = SparkApp.prepareSparkConf(uniqueAppTag, livyConf,
-      prepareConf(request.conf, request.jars, request.files, request.archives, request.pyFiles))
+      def mergeHiveSiteAndHiveDeps(): Unit = {
+        val sparkFiles = conf.get("spark.files").map(_.split(",")).getOrElse(Array.empty[String])
+        hiveSiteFile(sparkFiles, livyConf) match {
+          case (_, true) =>
+            debug("Enable HiveContext because hive-site.xml is found in user request.")
+            mergeConfList(datanucleusJars(livyConf), LivyConf.SPARK_JARS)
+          case (Some(file), false) =>
+            debug("Enable HiveContext because hive-site.xml is found under classpath, "
+              + file.getAbsolutePath)
+            mergeConfList(List(file.getAbsolutePath), LivyConf.SPARK_FILES)
+            mergeConfList(datanucleusJars(livyConf), LivyConf.SPARK_JARS)
+          case (None, false) =>
+            warn("Enable HiveContext but no hive-site.xml found under" +
+              " classpath or user request.")
+        }
+      }
 
-    val builderProperties = mutable.Map[String, String]()
-    builderProperties ++= conf
+      kind match {
+        case PySpark() | PySpark3() =>
+          val pySparkFiles = if (!LivyConf.TEST_MODE) findPySparkArchives() else Nil
+          mergeConfList(pySparkFiles, LivyConf.SPARK_PY_FILES)
+          builderProperties.put(SPARK_YARN_IS_PYTHON, "true")
+        case SparkR() =>
+          val sparkRArchive = if (!LivyConf.TEST_MODE) findSparkRArchive() else None
+          sparkRArchive.foreach { archive =>
+            builderProperties.put(RSCConf.Entry.SPARKR_PACKAGE.key(), archive + "#sparkr")
+          }
+        case _ =>
+      }
+      builderProperties.put(RSCConf.Entry.SESSION_KIND.key, kind.toString)
 
-    def mergeConfList(list: Seq[String], key: String): Unit = {
-      if (list.nonEmpty) {
-        builderProperties.get(key) match {
-          case None =>
-            builderProperties.put(key, list.mkString(","))
-          case Some(oldList) =>
-            val newList = (oldList :: list.toList).mkString(",")
-            builderProperties.put(key, newList)
+      mergeConfList(livyJars(livyConf), LivyConf.SPARK_JARS)
+      val enableHiveContext = livyConf.getBoolean(LivyConf.ENABLE_HIVE_CONTEXT)
+      builderProperties.put("spark.repl.enableHiveContext",
+        livyConf.getBoolean(LivyConf.ENABLE_HIVE_CONTEXT).toString)
+      if (enableHiveContext) {
+        mergeHiveSiteAndHiveDeps()
+      }
+
+      builderProperties
+    }
+
+    def createApp(appTag: String, appId: Option[String]) = {
+      mockApp.orElse {
+        if (livyConf.isRunningOnYarn()) {
+          // When Livy is running with YARN, SparkYarnApp can provide better YARN integration.
+          // (e.g. Reflect YARN application state to session state).
+          Option(SparkApp.create(appTag, appId, None, livyConf, Some(this)))
+        } else {
+          // When Livy is running with other cluster manager, SparkApp doesn't provide any
+          // additional benefit over controlling RSCDriver using RSCClient. Don't use it.
+          None
         }
       }
     }
 
-    def mergeHiveSiteAndHiveDeps(): Unit = {
-      val sparkFiles = conf.get("spark.files").map(_.split(",")).getOrElse(Array.empty[String])
-      hiveSiteFile(sparkFiles, livyConf) match {
-        case (_, true) =>
-          debug("Enable HiveContext because hive-site.xml is found in user request.")
-          mergeConfList(datanucleusJars(livyConf), LivyConf.SPARK_JARS)
-        case (Some(file), false) =>
-          debug("Enable HiveContext because hive-site.xml is found under classpath, "
-            + file.getAbsolutePath)
-          mergeConfList(List(file.getAbsolutePath), LivyConf.SPARK_FILES)
-          mergeConfList(datanucleusJars(livyConf), LivyConf.SPARK_JARS)
-        case (None, false) =>
-          warn("Enable HiveContext but no hive-site.xml found under" +
-            " classpath or user request.")
+    def create(request: CreateInteractiveRequest) = {
+      val conf = SparkApp.prepareSparkConf(appTag, livyConf,
+        prepareConf(request.conf, request.jars, request.files, request.archives, request.pyFiles))
+
+      val builderProperties = prepareBuilderProp(conf, request.kind)
+
+      val userOpts: Map[String, Option[String]] = Map(
+        "spark.driver.cores" -> request.driverCores.map(_.toString),
+        SparkLauncher.DRIVER_MEMORY -> request.driverMemory.map(_.toString),
+        SparkLauncher.EXECUTOR_CORES -> request.executorCores.map(_.toString),
+        SparkLauncher.EXECUTOR_MEMORY -> request.executorMemory.map(_.toString),
+        "spark.dynamicAllocation.maxExecutors" -> request.numExecutors.map(_.toString)
+      )
+
+      userOpts.foreach { case (key, opt) =>
+        opt.foreach { value => builderProperties.put(key, value) }
       }
+
+      sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+
+      info(s"Creating LivyClient for sessionId: $id")
+      val builder = new LivyClientBuilder()
+        .setAll(builderProperties.asJava)
+        .setConf("spark.app.name", s"livy-session-$id")
+        .setConf("livy.client.sessionId", id.toString)
+        .setConf(RSCConf.Entry.DRIVER_CLASS.key(), "com.cloudera.livy.repl.ReplDriver")
+        .setConf(RSCConf.Entry.PROXY_USER.key(), proxyUser.orNull)
+        .setURI(new URI("rsc:/"))
+      val client = builder.build().asInstanceOf[RSCClient]
+      (request.kind, Option(client), createApp(appTag, None))
     }
 
-    kind match {
-      case PySpark() | PySpark3() =>
-        val pySparkFiles = if (!LivyConf.TEST_MODE) findPySparkArchives() else Nil
-        mergeConfList(pySparkFiles, LivyConf.SPARK_PY_FILES)
-        builderProperties.put(SparkYarnIsPython, "true")
-      case SparkR() =>
-        val sparkRArchive = if (!LivyConf.TEST_MODE) findSparkRArchive() else None
-        sparkRArchive.foreach { archive =>
-          builderProperties.put(RSCConf.Entry.SPARKR_PACKAGE.key(), archive + "#sparkr")
+    def recover(kind: Kind, rscDriverUri: Option[URI], appId: Option[String]) = {
+      if (rscDriverUri.isDefined) {
+        val client = mockClient.getOrElse {
+          val builder = new LivyClientBuilder().setURI(rscDriverUri.get)
+          builder.build().asInstanceOf[RSCClient]
         }
-      case _ =>
-    }
-    builderProperties.put(RSCConf.Entry.SESSION_KIND.key, kind.toString)
-
-    mergeConfList(livyJars(livyConf), LivyConf.SPARK_JARS)
-    val enableHiveContext = livyConf.getBoolean(LivyConf.ENABLE_HIVE_CONTEXT)
-    builderProperties.put("spark.repl.enableHiveContext",
-      livyConf.getBoolean(LivyConf.ENABLE_HIVE_CONTEXT).toString)
-    if (enableHiveContext) {
-      mergeHiveSiteAndHiveDeps()
-    }
-
-    val userOpts: Map[String, Option[String]] = Map(
-      "spark.driver.cores" -> request.driverCores.map(_.toString),
-      SparkLauncher.DRIVER_MEMORY -> request.driverMemory.map(_.toString),
-      SparkLauncher.EXECUTOR_CORES -> request.executorCores.map(_.toString),
-      SparkLauncher.EXECUTOR_MEMORY -> request.executorMemory.map(_.toString),
-      "spark.dynamicAllocation.maxExecutors" -> request.numExecutors.map(_.toString)
-    )
-
-    userOpts.foreach { case (key, opt) =>
-      opt.foreach { value => builderProperties.put(key, value) }
-    }
-
-    info(s"Creating LivyClient for sessionId: $id")
-    val builder = new LivyClientBuilder()
-      .setAll(builderProperties.asJava)
-      .setConf("spark.app.name", s"livy-session-$id")
-      .setConf("livy.client.sessionId", id.toString)
-      .setConf(RSCConf.Entry.DRIVER_CLASS.key(), "com.cloudera.livy.repl.ReplDriver")
-      .setConf(RSCConf.Entry.PROXY_USER.key(), proxyUser.orNull)
-      .setURI(new URI("rsc:/"))
-    val client = builder.build().asInstanceOf[RSCClient]
-
-    val app = mockApp.orElse {
-      if (livyConf.isRunningOnYarn()) {
-        // When Livy is running with YARN, SparkYarnApp can provide better YARN integration.
-        // (e.g. Reflect YARN application state to session state).
-        Option(SparkApp.create(uniqueAppTag, None, None, livyConf, Some(this)))
+        (kind, Option(client), createApp(appTag, appId))
       } else {
-        // When Livy is running with other cluster manager, SparkApp doesn't provide any additional
-        // benefit over controlling RSCDriver using RSCClient. Don't use it.
-        None
+        val msg = s"Cannot recover interactive session $id because its RSCDriver URI is unknown."
+        info(msg)
+        sessionLog = IndexedSeq(msg)
+        (kind, None, None)
       }
     }
-    (client, app)
+
+    createOrRecover.fold(create, (recover _).tupled)
   }
 
-  // Send a dummy job that will return once the client is ready to be used, and set the
-  // state to "idle" at that point.
-  client.submit(new PingJob()).addListener(new JobHandle.Listener[Void]() {
-    override def onJobQueued(job: JobHandle[Void]): Unit = { }
-    override def onJobStarted(job: JobHandle[Void]): Unit = { }
+  if (client.isEmpty) {
+    transition(Dead())
+  } else {
+    // Send a dummy job that will return once the client is ready to be used, and set the
+    // state to "idle" at that point.
+    client.get.submit(new PingJob()).addListener(new JobHandle.Listener[Void]() {
+      override def onJobQueued(job: JobHandle[Void]): Unit = { }
+      override def onJobStarted(job: JobHandle[Void]): Unit = { }
 
-    override def onJobCancelled(job: JobHandle[Void]): Unit = errorOut()
+      override def onJobCancelled(job: JobHandle[Void]): Unit = errorOut()
 
-    override def onJobFailed(job: JobHandle[Void], cause: Throwable): Unit = errorOut()
+      override def onJobFailed(job: JobHandle[Void], cause: Throwable): Unit = errorOut()
 
-    override def onJobSucceeded(job: JobHandle[Void], result: Void): Unit = {
-      transition(SessionState.Idle())
-    }
-
-    private def errorOut(): Unit = {
-      // Other code might call stop() to close the RPC channel. When RPC channel is closing,
-      // this callback might be triggered. Check and don't call stop() to avoid nested called
-      // if the session is already shutting down.
-      if (_state != SessionState.ShuttingDown()) {
-        transition(SessionState.Error())
-        stop()
+      override def onJobSucceeded(job: JobHandle[Void], result: Void): Unit = {
+        rscDriverUri = Option(client.get.getServerUri.get())
+        if (createOrRecover.isLeft &&
+            createOrRecover.left.get.conf.contains(TEST_CONF_DONT_PERSIST_RSC_DRIVER_URI)) {
+          warn(s"Test hook '$TEST_CONF_DONT_PERSIST_RSC_DRIVER_URI' is enabled. " +
+            "Skip updating rscDriverUri to session store.")
+        } else {
+          sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+        }
+        transition(SessionState.Idle())
       }
-    }
-  })
 
+      private def errorOut(): Unit = {
+        // Other code might call stop() to close the RPC channel. When RPC channel is closing,
+        // this callback might be triggered. Check and don't call stop() to avoid nested called
+        // if the session is already shutting down.
+        if (_state != SessionState.ShuttingDown()) {
+          transition(SessionState.Error())
+          stop()
+        }
+      }
+    })
+  }
+
+  def kind: Kind = _kind
 
   private[this] var _executedStatements = 0
   private[this] var _statements = IndexedSeq[Statement]()
 
-  override def logLines(): IndexedSeq[String] = app.map(_.log()).getOrElse(IndexedSeq.empty)
+  override def logLines(): IndexedSeq[String] = app.map(_.log()).getOrElse(sessionLog)
 
-  override def recoveryMetadata: RecoveryMetadata = {
-    throw new NotImplementedError("TODO")
-  }
+  override def recoveryMetadata: RecoveryMetadata =
+    InteractiveRecoveryMetadata(id, appTag, appId, owner, proxyUser, kind, rscDriverUri)
 
   override def state: SessionState = _state
 
   override def stopSession(): Unit = {
     try {
       transition(SessionState.ShuttingDown())
-      client.stop(true)
+      sessionStore.remove(RECOVERY_SESSION_TYPE, id)
+      client.foreach { _.stop(true) }
     } catch {
       case _: Exception =>
         app.foreach {
@@ -229,7 +324,7 @@ class InteractiveSession(
     recordActivity()
 
     val future = Future {
-      val id = client.submitReplCode(content.code)
+      val id = client.get.submitReplCode(content.code)
       waitForStatement(id)
     }
 
@@ -258,31 +353,36 @@ class InteractiveSession(
   }
 
   def addFile(uri: URI): Unit = {
+    ensureRunning()
     recordActivity()
-    client.addFile(resolveURI(uri)).get()
+    client.get.addFile(resolveURI(uri)).get()
   }
 
   def addJar(uri: URI): Unit = {
+    ensureRunning()
     recordActivity()
-    client.addJar(resolveURI(uri)).get()
+    client.get.addJar(resolveURI(uri)).get()
   }
 
   def jobStatus(id: Long): Any = {
+    ensureRunning()
     val clientJobId = operations(id)
     recordActivity()
     // TODO: don't block indefinitely?
-    val status = client.getBypassJobStatus(clientJobId).get()
+    val status = client.get.getBypassJobStatus(clientJobId).get()
     new JobStatus(id, status.state, status.result, status.error)
   }
 
   def cancelJob(id: Long): Unit = {
+    ensureRunning()
     recordActivity()
-    operations.remove(id).foreach { client.cancel }
+    operations.remove(id).foreach { client.get.cancel }
   }
 
   @tailrec
   private def waitForStatement(id: String): JValue = {
-    Try(client.getReplJobResult(id).get()) match {
+    ensureRunning()
+    Try(client.get.getReplJobResult(id).get()) match {
       case Success(null) =>
         Thread.sleep(1000)
         waitForStatement(id)
@@ -293,7 +393,7 @@ class InteractiveSession(
         // it's still running.
         result \ "status" match {
           case JString("error") =>
-            val state = client.getReplState().get() match {
+            val state = client.get.getReplState().get() match {
               case "error" => SessionState.Error()
               case _ => SessionState.Idle()
             }
@@ -312,7 +412,7 @@ class InteractiveSession(
   }
 
   private def livyJars(livyConf: LivyConf): List[String] = {
-    Option(livyConf.get(LivyReplJars)).map(_.split(",").toList).getOrElse {
+    Option(livyConf.get(LIVY_REPL_JARS)).map(_.split(",").toList).getOrElse {
       val home = sys.env("LIVY_HOME")
       val jars = Option(new File(home, "repl-jars"))
         .filter(_.isDirectory())
@@ -423,7 +523,7 @@ class InteractiveSession(
   private def performOperation(job: Array[Byte], sync: Boolean): Long = {
     ensureRunning()
     recordActivity()
-    val future = client.bypass(ByteBuffer.wrap(job), sync)
+    val future = client.get.bypass(ByteBuffer.wrap(job), sync)
     val opId = operationCounter.incrementAndGet()
     operations(opId) = future
     opId
@@ -431,6 +531,11 @@ class InteractiveSession(
 
   override def appIdKnown(appId: String): Unit = {
     _appId = Option(appId)
+
+    // Update state store if we are creating, or if we are recovering but didn't have the appId.
+    if (createOrRecover.isLeft || createOrRecover.right.get._3.isEmpty) {
+      sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+    }
   }
 
   override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {

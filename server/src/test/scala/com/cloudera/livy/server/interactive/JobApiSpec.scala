@@ -22,24 +22,21 @@ import java.io.File
 import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.file.{Files, Paths}
-import java.util.concurrent.TimeUnit
 import javax.servlet.http.HttpServletResponse._
 
-import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 import scala.io.Source
 import scala.language.postfixOps
 
-import org.apache.hadoop.security.UserGroupInformation
-import org.apache.spark.api.java.function.VoidFunction
 import org.scalatest.concurrent.Eventually._
+import org.scalatest.mock.MockitoSugar.mock
 
-import com.cloudera.livy.{Job, JobContext, JobHandle}
+import com.cloudera.livy.{Job, JobHandle}
 import com.cloudera.livy.client.common.{BufferUtils, Serializer}
 import com.cloudera.livy.client.common.HttpMessages._
-import com.cloudera.livy.rsc.RSCConf
 import com.cloudera.livy.server.RemoteUserOverride
-import com.cloudera.livy.sessions.SessionState
+import com.cloudera.livy.server.recovery.SessionStore
+import com.cloudera.livy.sessions.{SessionManager, SessionState}
 import com.cloudera.livy.test.jobs.{Echo, GetCurrentUser}
 
 class JobApiSpec extends BaseInteractiveServletSpec {
@@ -49,7 +46,9 @@ class JobApiSpec extends BaseInteractiveServletSpec {
   private var sessionId: Int = -1
 
   override def createServlet(): InteractiveSessionServlet = {
-    new InteractiveSessionServlet(createConf()) with RemoteUserOverride
+    val conf = createConf()
+    val sessionManager = new SessionManager[InteractiveSession](conf)
+    new InteractiveSessionServlet(sessionManager, mock[SessionStore], conf) with RemoteUserOverride
   }
 
   def withSessionId(desc: String)(fn: (Int) => Unit): Unit = {

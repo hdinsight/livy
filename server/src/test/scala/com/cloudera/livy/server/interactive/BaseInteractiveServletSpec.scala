@@ -49,7 +49,7 @@ abstract class BaseInteractiveServletSpec extends BaseSessionServletSpec[Interac
     }
     super.createConf()
       .set(LivyConf.SESSION_STAGING_DIR, tempDir.toURI().toString())
-      .set(InteractiveSession.LivyReplJars, "")
+      .set(InteractiveSession.LIVY_REPL_JARS, "")
   }
 
   protected def createRequest(
