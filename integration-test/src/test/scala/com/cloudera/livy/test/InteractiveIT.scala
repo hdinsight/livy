@@ -127,7 +127,8 @@ class InteractiveIT extends BaseIntegrationTestSuite {
 
   test("recover interactive session") {
     withNewSession(Spark()) { s =>
-      s.run("1").verifyResult("res0: Int = 1")
+      val stmt1 = s.run("1")
+      stmt1.verifyResult("res0: Int = 1")
 
       // Restart Livy.
       cluster.stopLivy()
@@ -136,7 +137,8 @@ class InteractiveIT extends BaseIntegrationTestSuite {
       // Verify session still exists.
       s.verifySessionIdle()
       s.run("2").verifyResult("res1: Int = 2")
-      // TODO, verify previous statement results still exist.
+      // Verify statement result is preserved.
+      stmt1.verifyResult("res0: Int = 1")
 
       s.stop()
 
