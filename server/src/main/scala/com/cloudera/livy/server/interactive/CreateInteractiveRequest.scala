@@ -36,4 +36,5 @@ class CreateInteractiveRequest {
   var name: Option[String] = None
   var conf: Map[String, String] = Map()
   var packages: List[String] = List()
+  var heartbeatTimeout: Option[Int] = None
 }

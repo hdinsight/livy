@@ -32,9 +32,14 @@ import com.cloudera.livy.sessions.{Session, SessionManager}
 trait SessionHeartbeat {
   private var _lastHeartbeat = DateTime.now()
 
+  var _heartBeatTimeout: Int = 0
+
   def heartbeat(): Unit = _lastHeartbeat = DateTime.now()
 
   def lastHeartbeat: DateTime = _lastHeartbeat
+
+  def heartBeatExpired: Boolean =
+    (_heartBeatTimeout != 0 && lastHeartbeat.plus(_heartBeatTimeout*1000).isBeforeNow)
 }
 
 /**
@@ -71,29 +76,25 @@ trait SessionHeartbeatWatchdog[S <: Session with SessionHeartbeat] {
   import scala.concurrent.ExecutionContext.Implicits.global
 
   {
-    val timeout = Duration.millis(livyConf.getTimeAsMs(LivyConf.INTERACTIVE_HEARTBEAT_TIMEOUT))
+    def hasHeartbeatTimeout(session: S): Boolean = session.heartBeatExpired
 
-    def hasHeartbeatTimeout(session: S): Boolean = session.lastHeartbeat.plus(timeout).isBeforeNow
-
-    if (timeout != Duration.ZERO) {
-      info(s"Session heartbeat timeout is set to $timeout. Starting watchdog thread.")
-      val watchdogThread = new Thread(s"HeartbeatWatchdog-${self.getClass.getName}") {
-        override def run(): Unit = {
-          while (true) {
-            sessions.values.filter(hasHeartbeatTimeout).foreach({ s =>
-              info(s"Session ${s.id} expired. Last heartbeat is at ${s.lastHeartbeat}.")
-              Future {
-                delete(s)
-              }
-            })
-            // CHANGE IT TO 60s before checking in.
-            Thread.sleep(1 * 1000)
-          }
+    info(s"Starting watchdog thread.")
+    val watchdogThread = new Thread(s"HeartbeatWatchdog-${self.getClass.getName}") {
+      override def run(): Unit = {
+        while (true) {
+          sessions.values.filter(hasHeartbeatTimeout).foreach({ s =>
+            info(s"Session ${s.id} expired. Last heartbeat is at ${s.lastHeartbeat}.")
+            Future {
+              delete(s)
+            }
+          })
+          // CHANGE IT TO 60s before checking in.
+          Thread.sleep(1 * 1000)
         }
       }
-      watchdogThread.setDaemon(true)
-      watchdogThread.start()
     }
+    watchdogThread.setDaemon(true)
+    watchdogThread.start()
   }
 }
 
