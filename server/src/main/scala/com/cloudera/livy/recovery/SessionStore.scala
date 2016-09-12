@@ -29,7 +29,8 @@ import com.cloudera.livy.server.testpoint.TestpointManager
 case class InteractiveSessionMetadata(
   replUrl: Option[URL],
   kind: Kind,
-  proxyUser: Option[String]
+  proxyUser: Option[String],
+  heartbeatTimeout: Int
 )
 
 case class SessionMetadata(
@@ -77,7 +78,7 @@ class SessionStore(livyConf: LivyConf) extends Logging {
 
     // Store the session metadata.
     val interactiveMetadata = session match {
-      case s: InteractiveSession => Option(InteractiveSessionMetadata(s.url, s.kind, s.proxyUser))
+      case s: InteractiveSession => Option(InteractiveSessionMetadata(s.url, s.kind, s.proxyUser, s._heartBeatTimeout))
       case _ => None
     }
     val metadata = SessionMetadata(

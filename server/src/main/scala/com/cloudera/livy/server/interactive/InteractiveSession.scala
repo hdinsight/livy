@@ -68,6 +68,8 @@ object InteractiveSession {
       kindString = "BadKind"
     }
 
+    val timeout = request.heartbeatTimeout.getOrElse(0)
+
     val create = { (s: InteractiveSession) =>
       if (livyConf.isSparkMasterYarn) {
         builder.conf("spark.yarn.maxAppAttempts", "1")
@@ -77,7 +79,7 @@ object InteractiveSession {
 
     val uuid = UUID.randomUUID().toString
     val proxyUser = request.proxyUser
-    new InteractiveSession(id, uuid, owner, kind, proxyUser, create, sessionStore, livyConf, false)
+    new InteractiveSession(id, uuid, owner, timeout, kind, proxyUser, create, sessionStore, livyConf, false)
   }
 
   def recover(
@@ -85,6 +87,7 @@ object InteractiveSession {
       uuid: String,
       appId: Option[String],
       owner: String,
+      heartbeatTimeout: Int,
       kind: Kind,
       proxyUser: Option[String],
       replUrl: Option[URL],
@@ -96,7 +99,7 @@ object InteractiveSession {
       SparkApp.recover(uuid, appId, livyConf, Option(s))
     }
     new InteractiveSession(
-      id, uuid, owner, kind, proxyUser, recover, sessionStore, livyConf, true, appId, replUrl)
+      id, uuid, owner, heartbeatTimeout, kind, proxyUser, recover, sessionStore, livyConf, true, appId, replUrl)
   }
 
   private[this] def buildRequest(
@@ -207,6 +210,7 @@ class InteractiveSession private (
     id: Int,
     uuid: String,
     owner: String,
+    heartbeatTimeout: Int,
     val kind: Kind,
     val proxyUser: Option[String],
     appCreator: (InteractiveSession) => SparkApp,
@@ -224,6 +228,7 @@ class InteractiveSession private (
   private val pendingStatementCountMutex = AnyRef
   private var pendingStatementCount = 0
   private var serverSideLog = ArrayBuffer.empty[String]
+  _heartBeatTimeout = heartbeatTimeout
 
   protected implicit def executor: ExecutionContextExecutor =
     ExecutionContext.fromExecutor(new scala.concurrent.forkjoin.ForkJoinPool(2))

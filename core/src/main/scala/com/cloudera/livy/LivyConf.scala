@@ -43,7 +43,6 @@ object LivyConf {
   val SPARK_SUBMIT_KEY = Entry("livy.server.spark-submit", null)
   val SPARK_MASTER_KEY = Entry("livy.server.master", "local")
   val SPARK_DEPLOY_MODE_KEY = Entry("livy.server.deployMode", "client")
-  val INTERACTIVE_HEARTBEAT_TIMEOUT = Entry("livy.server.interactive.heartbeat.timeout", "0")
   val IMPERSONATION_ENABLED = Entry("livy.impersonation.enabled", false)
   val LIVY_HOME = Entry("livy.home", null)
   val FILE_UPLOAD_MAX_SIZE = Entry("livy.file.upload.max.size", 100L * 1024 * 1024)
