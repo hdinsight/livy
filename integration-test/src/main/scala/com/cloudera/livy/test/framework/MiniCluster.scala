@@ -148,7 +148,7 @@ object MiniLivyMain extends MiniClusterBase {
       LivyConf.LIVY_SPARK_MASTER.key -> "yarn",
       LivyConf.LIVY_SPARK_DEPLOY_MODE.key -> "cluster")
 
-    if (BaseIntegrationTestSuite.isRunningOnTravis) {
+    if (Cluster.isRunningOnTravis) {
       livyConf ++= Map("livy.server.yarn.app-lookup-timeout" -> "2m")
     }
 
