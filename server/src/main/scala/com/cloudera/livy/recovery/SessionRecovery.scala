@@ -38,7 +38,8 @@ class SessionRecovery(sessionStore: SessionStore, livyConf: LivyConf) extends Lo
           require(s.interactive.isDefined, s"Missing interactive metadata in session $s")
           val i = s.interactive.get
           Option(InteractiveSession.recover(
-            s.id, s.uuid, s.appId, s.owner, i.heartbeatTimeout, i.kind, i.proxyUser, i.replUrl, sessionStore, livyConf))
+            s.id, s.uuid, s.appId, s.owner, i.heartbeatTimeout, i.kind, i.proxyUser,
+            i.replUrl, sessionStore, livyConf))
         }
       }
     )

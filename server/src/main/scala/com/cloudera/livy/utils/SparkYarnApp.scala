@@ -239,8 +239,10 @@ class SparkYarnApp(
               if (!e.getMessage().contains("YarnApplicationAttemptState.FINAL_SAVING")) {
                 throw e
               } else {
-                // else, just ignore and assuming the state will transition into FINISHED/FAILED later
-                logger.warn("Encountered YarnApplicationAttemptState.FINAL_SAVING. Not changing state.")
+                // else, just ignore and assuming the state will transition into
+                // FINISHED/FAILED later
+                logger.warn(
+                  "Encountered YarnApplicationAttemptState.FINAL_SAVING. Not changing state.")
               }
           }
         }

@@ -38,7 +38,8 @@ trait SessionHeartbeat {
 
   def lastHeartbeat: DateTime = _lastHeartbeat
 
-  def heartBeatExpired: Boolean = (_heartBeatTimeout != 0 && lastHeartbeat.plus(_heartBeatTimeout*1000).isBeforeNow)
+  def heartBeatExpired: Boolean =
+    (_heartBeatTimeout != 0 && lastHeartbeat.plus(_heartBeatTimeout*1000).isBeforeNow)
 }
 
 /**

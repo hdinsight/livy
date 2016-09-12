@@ -79,7 +79,8 @@ object InteractiveSession {
 
     val uuid = UUID.randomUUID().toString
     val proxyUser = request.proxyUser
-    new InteractiveSession(id, uuid, owner, timeout, kind, proxyUser, create, sessionStore, livyConf, false)
+    new InteractiveSession(
+      id, uuid, owner, timeout, kind, proxyUser, create, sessionStore, livyConf, false)
   }
 
   def recover(
@@ -99,7 +100,8 @@ object InteractiveSession {
       SparkApp.recover(uuid, appId, livyConf, Option(s))
     }
     new InteractiveSession(
-      id, uuid, owner, heartbeatTimeout, kind, proxyUser, recover, sessionStore, livyConf, true, appId, replUrl)
+      id, uuid, owner, heartbeatTimeout, kind, proxyUser, recover, sessionStore, livyConf,
+      true, appId, replUrl)
   }
 
   private[this] def buildRequest(
