@@ -22,11 +22,13 @@ import java.io.{File, InputStream}
 import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.file.{Files, Paths}
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.Future
+import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.util.Random
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
@@ -51,6 +53,7 @@ case class InteractiveRecoveryMetadata(
     owner: String,
     proxyUser: Option[String],
     kind: Kind,
+    heartbeatTimeoutS: Int,
     rscDriverUri: Option[URI],
     version: Int = 1)
   extends RecoveryMetadata
@@ -73,7 +76,15 @@ object InteractiveSession {
       mockClient: Option[RSCClient] = None): InteractiveSession = {
     val appTag = s"livy-session-$id-${Random.alphanumeric.take(8).mkString}"
     new InteractiveSession(
-      id, appTag, owner, proxyUser, livyConf, Left(request), sessionStore, mockApp, mockClient)
+      id,
+      appTag,
+      owner,
+      proxyUser,
+      livyConf,
+      Left(request),
+      sessionStore,
+      mockApp,
+      mockClient)
   }
 
   def recover(
@@ -88,7 +99,7 @@ object InteractiveSession {
       metadata.owner,
       metadata.proxyUser,
       livyConf,
-      Right((metadata.kind, metadata.rscDriverUri, metadata.appId)),
+      Right(metadata),
       sessionStore,
       mockApp,
       mockClient)
@@ -102,11 +113,12 @@ class InteractiveSession(
     override val proxyUser: Option[String],
     livyConf: LivyConf,
     // Use Left to create a new session, Right to recover an existing session.
-    createOrRecover: Either[CreateInteractiveRequest, (Kind, Option[URI], Option[String])],
+    createOrRecover: Either[CreateInteractiveRequest, InteractiveRecoveryMetadata],
     sessionStore: SessionStore,
     mockApp: Option[SparkApp],
     mockClient: Option[RSCClient]) // For unit test.
   extends Session(id, owner, livyConf)
+  with SessionHeartbeat
   with SparkAppListener {
 
   import InteractiveSession._
@@ -115,6 +127,13 @@ class InteractiveSession(
 
   private var _state: SessionState =
     createOrRecover.fold(_ => SessionState.Starting(), _ => SessionState.Recovering())
+
+  override protected val heartbeatTimeout: FiniteDuration = {
+    val heartbeatTimeoutInSecond =
+      createOrRecover.fold(_.heartbeatTimeoutInSecond, _.heartbeatTimeoutS)
+    Duration(heartbeatTimeoutInSecond, TimeUnit.SECONDS)
+  }
+  heartbeat()
 
   private val operations = mutable.Map[Long, String]()
   private val operationCounter = new AtomicLong(0)
@@ -253,22 +272,22 @@ class InteractiveSession(
       (request.kind, Option(client), createApp(appTag, None))
     }
 
-    def recover(kind: Kind, rscDriverUri: Option[URI], appId: Option[String]) = {
-      if (rscDriverUri.isDefined) {
+    def recover(m: InteractiveRecoveryMetadata) = {
+      if (m.rscDriverUri.isDefined) {
         val client = mockClient.getOrElse {
-          val builder = new LivyClientBuilder().setURI(rscDriverUri.get)
+          val builder = new LivyClientBuilder().setURI(m.rscDriverUri.get)
           builder.build().asInstanceOf[RSCClient]
         }
-        (kind, Option(client), createApp(appTag, appId))
+        (m.kind, Option(client), createApp(m.appTag, m.appId))
       } else {
         val msg = s"Cannot recover interactive session $id because its RSCDriver URI is unknown."
         info(msg)
         sessionLog = IndexedSeq(msg)
-        (kind, None, None)
+        (m.kind, None, None)
       }
     }
 
-    createOrRecover.fold(create, (recover _).tupled)
+    createOrRecover.fold(create, recover)
   }
 
   if (client.isEmpty) {
@@ -313,7 +332,8 @@ class InteractiveSession(
   override def logLines(): IndexedSeq[String] = app.map(_.log()).getOrElse(sessionLog)
 
   override def recoveryMetadata: RecoveryMetadata =
-    InteractiveRecoveryMetadata(id, appTag, appId, owner, proxyUser, kind, rscDriverUri)
+    InteractiveRecoveryMetadata(
+      id, appTag, appId, owner, proxyUser, kind, heartbeatTimeout.toSeconds.toInt, rscDriverUri)
 
   override def state: SessionState = _state
 
@@ -541,7 +561,7 @@ class InteractiveSession(
     _appId = Option(appId)
 
     // Update state store if we are creating, or if we are recovering but didn't have the appId.
-    if (createOrRecover.isLeft || createOrRecover.right.get._3.isEmpty) {
+    if (createOrRecover.isLeft || createOrRecover.right.get.appId.isEmpty) {
       sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
     }
   }

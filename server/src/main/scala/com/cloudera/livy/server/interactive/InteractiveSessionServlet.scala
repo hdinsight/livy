@@ -44,6 +44,7 @@ class InteractiveSessionServlet(
     sessionStore: SessionStore,
     livyConf: LivyConf)
   extends SessionServlet[InteractiveSession](sessionManager, livyConf)
+  with SessionHeartbeatNotifier[InteractiveSession]
   with FileUploadSupport
 {
 

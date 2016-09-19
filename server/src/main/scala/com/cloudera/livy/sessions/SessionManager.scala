@@ -34,7 +34,7 @@ object SessionManager {
 
 class SessionManager[S <: Session](
     startingId: Int,
-    val livyConf: LivyConf)
+    var livyConf: LivyConf)
   extends Logging {
   // TODO Remove this once InteractiveSession supports recovery.
   def this(livyConf: LivyConf) {
@@ -44,7 +44,7 @@ class SessionManager[S <: Session](
   private implicit def executor: ExecutionContext = ExecutionContext.global
 
   private[this] final val idCounter = new AtomicInteger(startingId)
-  private[this] final val sessions = mutable.LinkedHashMap[Int, S]()
+  protected final val sessions = mutable.LinkedHashMap[Int, S]()
 
   private[this] final val sessionTimeout =
     TimeUnit.MILLISECONDS.toNanos(livyConf.getTimeAsMs(SessionManager.SESSION_TIMEOUT))

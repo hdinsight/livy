@@ -20,6 +20,7 @@ package com.cloudera.livy.server.recovery
 import com.cloudera.livy.{LivyConf, Logging}
 import com.cloudera.livy.server.batch.{BatchRecoveryMetadata, BatchSession}
 import com.cloudera.livy.server.interactive.{InteractiveRecoveryMetadata, InteractiveSession}
+import com.cloudera.livy.server.interactive.SessionManagerWithHeartbeat
 import com.cloudera.livy.sessions.{Session, SessionManager}
 import com.cloudera.livy.sessions.Session.RecoveryMetadata
 
@@ -49,7 +50,12 @@ class SessionRecovery(sessionStore: SessionStore, livyConf: LivyConf) extends Lo
     : SessionManager[S] = {
     // Recover next session id from state store and create SessionManager.
     val nextSessionId = sessionStore.getNextSessionId(sessionType)
-    val sessionManager = new SessionManager[S](nextSessionId, livyConf)
+    val sessionManager = sessionType match {
+      case InteractiveSession.RECOVERY_SESSION_TYPE =>
+        new SessionManagerWithHeartbeat[S](nextSessionId, livyConf)
+      case _ =>
+        new SessionManager[S](nextSessionId, livyConf)
+    }
 
     // Retrieve session recovery metadata from state store.
     val sessionMetadata = sessionStore.getAllSessions(sessionType, metadataType)

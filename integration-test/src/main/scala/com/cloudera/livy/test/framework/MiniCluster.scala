@@ -147,6 +147,7 @@ object MiniLivyMain extends MiniClusterBase {
     var livyConf = Map(
       LivyConf.LIVY_SPARK_MASTER.key -> "yarn",
       LivyConf.LIVY_SPARK_DEPLOY_MODE.key -> "cluster",
+      LivyConf.HEARTBEAT_WATCHDOG_INTERVAL.key -> "1s",
       LivyConf.RECOVERY_MODE.key -> "recovery",
       LivyConf.RECOVERY_STATE_STORE.key -> "filesystem",
       LivyConf.RECOVERY_STATE_STORE_URL_CONF.key -> s"file://$configPath/state-store")
