@@ -140,34 +140,35 @@ class InteractiveIT extends BaseIntegrationTestSuite {
 
   test("recover interactive session") {
     withNewSession(Spark()) { s =>
-      withNewSession(Spark()) { ds =>
-        ds.stop()
-        s.verifySessionIdle()
-        val stmt1 = s.run("1")
-        stmt1.verifyResult("res0: Int = 1")
+      s.verifySessionIdle()
+      val stmt1 = s.run("1")
+      stmt1.verifyResult("res0: Int = 1")
 
-        // Restart Livy.
-        cluster.stopLivy()
-        cluster.runLivy()
+      // Restart Livy.
+      cluster.stopLivy()
+      cluster.runLivy()
 
-        // Verify session still exists.
-        s.verifySessionIdle()
-        s.run("2").verifyResult("res1: Int = 2")
-        // Verify statement result is preserved.
-        stmt1.verifyResult("res0: Int = 1")
+      // Verify session still exists.
+      s.verifySessionIdle()
+      s.run("2").verifyResult("res1: Int = 2")
+      // Verify statement result is preserved.
+      stmt1.verifyResult("res0: Int = 1")
 
-        // Verify deleted session doesn't show up.
-        ds.verifySessionDoesNotExist()
+      s.stop()
+      cluster.stopLivy()
+      cluster.runLivy()
 
-        // Verify new session doesn't reuse old session id.
-        withNewSession(Spark()) { s1 =>
-          s1.id should be > s.id
-        }
+      // Verify deleted session doesn't show up.
+      s.verifySessionDoesNotExist()
+
+      // Verify new session doesn't reuse old session id.
+      withNewSession(Spark()) { s1 =>
+        s1.id should be > s.id
       }
     }
   }
 
-  test("unrecoverable session should go to dead state") {
+  ignore("unrecoverable session should go to dead state") {
     withNewSession(Spark(), Map(TEST_CONF_DONT_PERSIST_RSC_DRIVER_URI -> "true")) { s =>
       s.verifySessionIdle()
 
