@@ -141,6 +141,14 @@ object InteractiveSession extends Logging {
       mockApp)
   }
 
+  private def replJarDefault: String = {
+    if (LivySparkUtils.runningOnSpark2) {
+      "repl_2.11-jars"
+    } else {
+      "repl-jars"
+    }
+  }
+
   private def prepareBuilderProp(
     conf: Map[String, String],
     kind: Kind,
@@ -152,7 +160,7 @@ object InteractiveSession extends Logging {
     def livyJars(livyConf: LivyConf): List[String] = {
       Option(livyConf.get(LIVY_REPL_JARS)).map(_.split(",").toList).getOrElse {
         val home = sys.env("LIVY_HOME")
-        val jars = Option(new File(home, "repl-jars"))
+        val jars = Option(new File(home, replJarDefault))
           .filter(_.isDirectory())
           .getOrElse(new File(home, "repl/scala-2.10/target/jars"))
         require(jars.isDirectory(), "Cannot find Livy REPL jars.")

@@ -26,6 +26,8 @@ import com.cloudera.livy.LivyConf
 import com.cloudera.livy.util.LineBufferedProcess
 
 object LivySparkUtils {
+  // HACK HACK HACK
+  var runningOnSpark2: Boolean = false
 
   /**
    * Test that Spark home is configured and configured Spark home is a directory.
@@ -63,6 +65,7 @@ object LivySparkUtils {
 
     val supportedVersion = formatSparkVersion(version) match {
       case v: (Int, Int) =>
+        runningOnSpark2 = v._1 == 2
         v >= minVersion && v < maxVersion
       case _ => false
     }
