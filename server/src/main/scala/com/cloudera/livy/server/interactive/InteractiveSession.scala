@@ -528,6 +528,7 @@ class InteractiveSession(
 
   private def setSessionStateFromReplState(newStateStr: Option[String]): Unit = {
     val newState = newStateStr match {
+      case Some("starting") => SessionState.Starting()
       case Some("idle") => SessionState.Idle()
       case Some("busy") => SessionState.Busy()
       case Some("error") => SessionState.Error()
