@@ -17,14 +17,68 @@
 
 package com.cloudera.livy.rsc.driver;
 
-import org.json4s.JsonAST.JValue;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import org.json4s.JsonAST.JObject;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Statement {
+  public static class Result {
+    public static String STATUS_OK = "ok";
+    public static String STATUS_ERROR = "error";
+
+    public final String status;
+    @JsonProperty("execution_count")
+    public final Integer executionCount;
+
+    private Result(String status, Integer executionCount) {
+      this.status = status;
+      this.executionCount = executionCount;
+
+    }
+
+    // For deserialization.
+    public Result() {
+      this(null, null);
+    }
+  }
+
+  public static class OkResult extends Result {
+    public final JObject data;
+
+    public OkResult(Integer executionCount, JObject data) {
+      super(STATUS_OK, executionCount);
+      this.data = data;
+    }
+
+    public OkResult() {
+      this(null, null);
+    }
+  }
+
+  public static class ErrorResult extends Result {
+    public final String ename;
+    public final String evalue;
+    public final String[] traceback;
+
+    public ErrorResult(Integer executionCount, String ename, String evalue, String[] traceback)
+    {
+      super(STATUS_ERROR, executionCount);
+      this.ename = ename;
+      this.evalue = evalue;
+      this.traceback = traceback;
+    }
+
+    public ErrorResult() {
+      this(null, null, null, null);
+    }
+  }
+
   public final int id;
   public final StatementState state;
-  public final JValue output;
+  public final Result output;
 
-  public Statement(int id, StatementState state, JValue output) {
+  public Statement(int id, StatementState state, Result output) {
     this.id = id;
     this.state = state;
     this.output = output;

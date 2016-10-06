@@ -32,6 +32,7 @@ import org.scalatest.concurrent.Eventually._
 
 import com.cloudera.livy._
 import com.cloudera.livy.rsc.{PingJob, RSCClient, RSCConf}
+import com.cloudera.livy.rsc.driver.Statement.Result.STATUS_OK
 import com.cloudera.livy.sessions.Spark
 
 class ReplDriverSuite extends FunSuite with LivyBaseUnitTestSuite {
@@ -61,7 +62,7 @@ class ReplDriverSuite extends FunSuite with LivyBaseUnitTestSuite {
         val rawResult =
           client.getReplJobResults(statementId, 1).get(10, TimeUnit.SECONDS).statements(0)
         val result = rawResult.output
-        assert((result \ Session.STATUS).extract[String] === Session.OK)
+        assert(result.status === STATUS_OK)
       }
     } finally {
       client.stop(true)

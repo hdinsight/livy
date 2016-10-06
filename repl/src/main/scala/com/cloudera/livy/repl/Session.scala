@@ -25,32 +25,17 @@ import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 
 import org.apache.spark.SparkContext
-import org.json4s.{DefaultFormats, JValue}
-import org.json4s.JsonDSL._
 
 import com.cloudera.livy.Logging
 import com.cloudera.livy.rsc.driver.{Statement, StatementState}
+import com.cloudera.livy.rsc.driver.Statement._
 import com.cloudera.livy.sessions._
-
-object Session {
-  val STATUS = "status"
-  val OK = "ok"
-  val ERROR = "error"
-  val EXECUTION_COUNT = "execution_count"
-  val DATA = "data"
-  val ENAME = "ename"
-  val EVALUE = "evalue"
-  val TRACEBACK = "traceback"
-}
 
 class Session(interpreter: Interpreter)
   extends Logging
 {
-  import Session._
-
   private implicit val executor = ExecutionContext.fromExecutorService(
     Executors.newSingleThreadExecutor())
-  private implicit val formats = DefaultFormats
 
   private var _state: SessionState = SessionState.NotStarted()
   private val _statements = mutable.Map[Int, Statement]()
@@ -105,7 +90,7 @@ class Session(interpreter: Interpreter)
     _statements.clear()
   }
 
-  private def executeCode(executionCount: Int, code: String) = {
+  private def executeCode(executionCount: Int, code: String): Statement.Result = {
     _state = SessionState.Busy()
 
     try {
@@ -113,49 +98,23 @@ class Session(interpreter: Interpreter)
       interpreter.execute(code) match {
         case Interpreter.ExecuteSuccess(data) =>
           _state = SessionState.Idle()
-
-          (STATUS -> OK) ~
-          (EXECUTION_COUNT -> executionCount) ~
-          (DATA -> data)
-
+          new OkResult(executionCount, data)
         case Interpreter.ExecuteIncomplete() =>
           _state = SessionState.Idle()
-
-          (STATUS -> ERROR) ~
-          (EXECUTION_COUNT -> executionCount) ~
-          (ENAME -> "Error") ~
-          (EVALUE -> "incomplete statement") ~
-          (TRACEBACK -> List())
-
+          new ErrorResult(executionCount, "Error", "incomplete statement", Array.empty)
         case Interpreter.ExecuteError(ename, evalue, traceback) =>
           _state = SessionState.Idle()
-
-          (STATUS -> ERROR) ~
-          (EXECUTION_COUNT -> executionCount) ~
-          (ENAME -> ename) ~
-          (EVALUE -> evalue) ~
-          (TRACEBACK -> traceback)
-
+          new ErrorResult(executionCount, ename, evalue, traceback.toArray)
         case Interpreter.ExecuteAborted(message) =>
           _state = SessionState.Error(System.nanoTime())
-
-          (STATUS -> ERROR) ~
-          (EXECUTION_COUNT -> executionCount) ~
-          (ENAME -> "Error") ~
-          (EVALUE -> f"Interpreter died:\n$message") ~
-          (TRACEBACK -> List())
+          new ErrorResult(executionCount, "Error", f"Interpreter died:\n$message", Array.empty)
       }
     } catch {
       case e: Throwable =>
         error("Exception when executing code", e)
-
         _state = SessionState.Idle()
-
-        (STATUS -> ERROR) ~
-        (EXECUTION_COUNT -> executionCount) ~
-        (ENAME -> f"Internal Error: ${e.getClass.getName}") ~
-        (EVALUE -> e.getMessage) ~
-        (TRACEBACK -> List())
+        new ErrorResult(
+          executionCount, "Error", f"Internal Error: ${e.getClass.getName}", Array.empty)
     }
   }
 }

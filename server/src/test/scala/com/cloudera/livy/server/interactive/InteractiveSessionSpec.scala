@@ -35,7 +35,8 @@ import org.scalatest.mock.MockitoSugar.mock
 
 import com.cloudera.livy.{ExecuteRequest, JobHandle, LivyBaseUnitTestSuite, LivyConf}
 import com.cloudera.livy.rsc.{PingJob, RSCClient, RSCConf}
-import com.cloudera.livy.rsc.driver.StatementState
+import com.cloudera.livy.rsc.driver.{Statement, StatementState}
+import com.cloudera.livy.rsc.driver.Statement.Result.{STATUS_OK, STATUS_ERROR}
 import com.cloudera.livy.server.recovery.SessionStore
 import com.cloudera.livy.sessions.{PySpark, SessionState, Spark}
 import com.cloudera.livy.utils.{AppInfo, SparkApp}
@@ -69,12 +70,12 @@ class InteractiveSessionSpec extends FunSpec
     InteractiveSession.create(0, null, None, livyConf, req, sessionStore, mockApp)
   }
 
-  private def executeStatement(code: String): JValue = {
+  private def executeStatement(code: String): Statement = {
     val id = session.executeStatement(ExecuteRequest(code)).id
     eventually(timeout(30 seconds), interval(100 millis)) {
       val s = session.getStatement(id).get
       s.state shouldBe StatementState.Available
-      s.output
+      s
     }
   }
 
@@ -97,6 +98,18 @@ class InteractiveSessionSpec extends FunSpec
   }
 
   describe("A spark session") {
+    def verifyOkResult(s: Statement, expectedId: Int): Unit = {
+      s.id shouldBe expectedId
+      s.output.status shouldBe STATUS_OK
+      s.output.executionCount shouldBe expectedId
+    }
+
+    def verifyErrorResult(s: Statement, expectedId: Int): Unit = {
+      s.id shouldBe expectedId
+      s.output.status shouldBe STATUS_ERROR
+      s.output.executionCount shouldBe expectedId
+    }
+
     it("should start in the idle state") {
       session = createSession()
       session.state should (be(a[SessionState.Starting]) or be(a[SessionState.Idle]))
@@ -121,6 +134,8 @@ class InteractiveSessionSpec extends FunSpec
 
     withSession("should execute `1 + 2` == 3") { session =>
       val result = executeStatement("1 + 2")
+      verifyOkResult(result, 0)
+      /*
       val expectedResult = Extraction.decompose(Map(
         "status" -> "ok",
         "execution_count" -> 0,
@@ -130,10 +145,13 @@ class InteractiveSessionSpec extends FunSpec
       ))
 
       result should equal (expectedResult)
+      */
     }
 
     withSession("should report an error if accessing an unknown variable") { session =>
       val result = executeStatement("x")
+      verifyErrorResult(result, 1)
+      /*
       val expectedResult = Extraction.decompose(Map(
         "status" -> "error",
         "execution_count" -> 1,
@@ -146,6 +164,7 @@ class InteractiveSessionSpec extends FunSpec
       ))
 
       result should equal (expectedResult)
+      */
       session.state shouldBe a[SessionState.Idle]
     }
 

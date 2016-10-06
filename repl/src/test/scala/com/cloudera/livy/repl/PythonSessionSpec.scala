@@ -18,18 +18,18 @@
 
 package com.cloudera.livy.repl
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import org.apache.spark.SparkConf
-import org.json4s.Extraction
-import org.scalatest._
+import org.scalatest.Outcome
 
 import com.cloudera.livy.sessions._
 
 abstract class PythonSessionSpec extends BaseSessionSpec {
 
   it should "execute `1 + 2` == 3" in withSession { session =>
-    val statement = execute(session, "1 + 2")
-    statement.id should equal (0)
-
+    verifyOkResult(execute(session, "1 + 2"), 0)
+    /*
     val result = statement.output
     val expectedResult = Extraction.decompose(Map(
       "status" -> "ok",
@@ -40,9 +40,17 @@ abstract class PythonSessionSpec extends BaseSessionSpec {
     ))
 
     result should equal (expectedResult)
+    */
   }
 
   it should "execute `x = 1`, then `y = 2`, then `x + y`" in withSession { session =>
+    val statementId = new AtomicInteger()
+
+    verifyOkResult(execute(session, "x = 1"), statementId.getAndIncrement())
+    verifyOkResult(execute(session, "y = 2"), statementId.getAndIncrement())
+    verifyOkResult(execute(session, "x + y"), statementId.getAndIncrement())
+
+    /*
     var statement = execute(session, "x = 1")
     statement.id should equal (0)
 
@@ -84,9 +92,12 @@ abstract class PythonSessionSpec extends BaseSessionSpec {
     ))
 
     result should equal (expectedResult)
+    */
   }
 
   it should "do table magic" in withSession { session =>
+    verifyOkResult(execute(session, "x = [[1, 'a'], [3, 'b']]\n%table x"), 0)
+    /*
     val statement = execute(session, "x = [[1, 'a'], [3, 'b']]\n%table x")
     statement.id should equal (0)
 
@@ -105,9 +116,12 @@ abstract class PythonSessionSpec extends BaseSessionSpec {
     ))
 
     result should equal (expectedResult)
+    */
   }
 
   it should "capture stdout" in withSession { session =>
+    verifyOkResult(execute(session, "print('Hello World')"), 0)
+    /*
     val statement = execute(session, """print('Hello World')""")
     statement.id should equal (0)
 
@@ -120,10 +134,12 @@ abstract class PythonSessionSpec extends BaseSessionSpec {
       )
     ))
 
-    result should equal (expectedResult)
+    result should equal (expectedResult)*/
   }
 
   it should "report an error if accessing an unknown variable" in withSession { session =>
+    verifyErrorResult(execute(session, "x"), 0)
+    /*
     val statement = execute(session, """x""")
     statement.id should equal (0)
 
@@ -140,9 +156,19 @@ abstract class PythonSessionSpec extends BaseSessionSpec {
     ))
 
     result should equal (expectedResult)
+    */
   }
 
   it should "report an error if exception is thrown" in withSession { session =>
+    val code =
+      """def func1():
+        |  raise Exception("message")
+        |def func2():
+        |  func1()
+        |func2()
+      """.stripMargin
+    verifyErrorResult(execute(session, code), 0)
+    /*
     val statement = execute(session,
       """def func1():
         |  raise Exception("message")
@@ -166,7 +192,7 @@ abstract class PythonSessionSpec extends BaseSessionSpec {
       "evalue" -> "message"
     ))
 
-    result should equal (expectedResult)
+    result should equal (expectedResult)*/
   }
 }
 
@@ -184,12 +210,13 @@ class Python3SessionSpec extends PythonSessionSpec {
   override def createInterpreter(): Interpreter = PythonInterpreter(new SparkConf(), PySpark3())
 
   it should "check python version is 3.x" in withSession { session =>
-    val statement = execute(session,
+    val code =
       """import sys
       |sys.version >= '3'
-      """.stripMargin)
-    statement.id should equal (0)
+      """.stripMargin
+    verifyOkResult(execute(session, code), 0)
 
+    /*
     val result = statement.output
     val expectedResult = Extraction.decompose(Map(
       "status" -> "ok",
@@ -200,5 +227,6 @@ class Python3SessionSpec extends PythonSessionSpec {
     ))
 
     result should equal (expectedResult)
+    */
   }
 }

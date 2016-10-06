@@ -28,6 +28,7 @@ import org.scalatest.concurrent.Eventually._
 
 import com.cloudera.livy.LivyBaseUnitTestSuite
 import com.cloudera.livy.rsc.driver.{Statement, StatementState}
+import com.cloudera.livy.rsc.driver.Statement.Result.{STATUS_OK, STATUS_ERROR}
 import com.cloudera.livy.sessions.SessionState
 
 abstract class BaseSessionSpec extends FlatSpec with Matchers with LivyBaseUnitTestSuite {
@@ -41,6 +42,18 @@ abstract class BaseSessionSpec extends FlatSpec with Matchers with LivyBaseUnitT
       s.state shouldBe StatementState.Available
       s
     }
+  }
+
+  protected def verifyOkResult(s: Statement, expectedId: Int): Unit = {
+    s.id shouldBe expectedId
+    s.output.status shouldBe STATUS_OK
+    s.output.executionCount shouldBe expectedId
+  }
+
+  protected def verifyErrorResult(s: Statement, expectedId: Int): Unit = {
+    s.id shouldBe expectedId
+    s.output.status shouldBe STATUS_ERROR
+    s.output.executionCount shouldBe expectedId
   }
 
   protected def withSession(testCode: Session => Any): Unit = {
