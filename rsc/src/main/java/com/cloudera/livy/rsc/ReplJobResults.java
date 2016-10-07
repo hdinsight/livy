@@ -16,13 +16,12 @@
  */
 package com.cloudera.livy.rsc;
 
-import com.cloudera.livy.rsc.driver.Statement;
-
 public class ReplJobResults {
-  public final Statement[] statements;
+  // A json list of statements. Using json here to avoid Kryo serialization issues.
+  public final String statements;
   public final String replState;
 
-  public ReplJobResults(Statement[] statements, String replState) {
+  public ReplJobResults(String statements, String replState) {
     this.statements = statements;
     this.replState = replState;
   }

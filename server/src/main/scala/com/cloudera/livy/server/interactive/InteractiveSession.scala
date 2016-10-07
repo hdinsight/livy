@@ -30,12 +30,14 @@ import scala.concurrent.Future
 import scala.util.Random
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.launcher.SparkLauncher
-import org.json4s.{DefaultFormats, Formats}
+import org.json4s.jackson.Json4sScalaModule
 
 import com.cloudera.livy._
 import com.cloudera.livy.client.common.HttpMessages._
-import com.cloudera.livy.rsc.{PingJob, RSCClient, RSCConf}
+import com.cloudera.livy.rsc.{PingJob, ReplJobResults, RSCClient, RSCConf}
 import com.cloudera.livy.rsc.driver.Statement
 import com.cloudera.livy.server.recovery.SessionStore
 import com.cloudera.livy.sessions._
@@ -58,6 +60,9 @@ case class InteractiveRecoveryMetadata(
 object InteractiveSession extends Logging {
   private[interactive] val LIVY_REPL_JARS = "livy.repl.jars"
   private[interactive] val SPARK_YARN_IS_PYTHON = "spark.yarn.isPython"
+  private val mapper = new ObjectMapper()
+    .registerModule(DefaultScalaModule)
+    .registerModule(new Json4sScalaModule())
 
   val RECOVERY_SESSION_TYPE = "interactive"
 
@@ -326,6 +331,7 @@ class InteractiveSession(
   private val operationCounter = new AtomicLong(0)
   private var rscDriverUri: Option[URI] = None
   private var sessionLog: IndexedSeq[String] = IndexedSeq.empty
+  private lazy val statementsReader = mapper.reader(classOf[Array[Statement]])
 
   // TODO Replace this with a Rpc call from repl to server.
   private val stateThread = new Thread(new Runnable {
@@ -416,24 +422,26 @@ class InteractiveSession(
     }
   }
 
+
+  private def parseStatementJobResults(r: ReplJobResults): (Array[Statement], Option[String]) = {
+    val statements = statementsReader.readValue[Array[Statement]](r.statements)
+    (statements, Option(r.replState))
+  }
+
   def statements: IndexedSeq[Statement] = {
     ensureActive()
-    val r = client.get.getReplJobResults().get()
+    val r = parseStatementJobResults(client.get.getReplJobResults().get())
 
-    setSessionStateFromReplState(Option(r.replState))
-    r.statements.toIndexedSeq
+    setSessionStateFromReplState(r._2)
+    r._1.toIndexedSeq
   }
 
   def getStatement(stmtId: Int): Option[Statement] = {
     ensureActive()
-    val r = client.get.getReplJobResults(stmtId, 1).get()
+    val r = parseStatementJobResults(client.get.getReplJobResults(stmtId, 1).get())
 
-    setSessionStateFromReplState(Option(r.replState))
-    if (r.statements.length < 1) {
-      None
-    } else {
-      Option(r.statements(0))
-    }
+    setSessionStateFromReplState(r._2)
+    r._1.headOption
   }
 
   def interrupt(): Future[Unit] = {
@@ -446,7 +454,7 @@ class InteractiveSession(
     recordActivity()
 
     val id = client.get.submitReplCode(content.code).get
-    client.get.getReplJobResults(id, 1).get().statements(0)
+    getStatement(id).get
   }
 
   def runJob(job: Array[Byte]): Long = {

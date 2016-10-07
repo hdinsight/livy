@@ -31,6 +31,7 @@ import org.scalatest.FunSuite
 import org.scalatest.concurrent.Eventually._
 
 import com.cloudera.livy._
+import com.cloudera.livy.rsc.driver.Statement
 import com.cloudera.livy.rsc.{PingJob, RSCClient, RSCConf}
 import com.cloudera.livy.sessions.Spark
 
@@ -58,9 +59,10 @@ class ReplDriverSuite extends FunSuite with LivyBaseUnitTestSuite {
 
       val statementId = client.submitReplCode("1 + 1").get
       eventually(timeout(30 seconds), interval(100 millis)) {
-        val rawResult =
-          client.getReplJobResults(statementId, 1).get(10, TimeUnit.SECONDS).statements(0)
-        val result = rawResult.output
+        val statementsJson =
+          client.getReplJobResults(statementId, 1).get(10, TimeUnit.SECONDS).statements
+        val statements = mapper.readValue(statementsJson, classOf[Array[Statement]])
+        val result = statements(0).output
         assert((result \ Session.STATUS).extract[String] === Session.OK)
       }
     } finally {

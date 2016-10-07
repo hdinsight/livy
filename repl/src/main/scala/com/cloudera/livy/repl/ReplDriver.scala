@@ -21,9 +21,12 @@ package com.cloudera.livy.repl
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import io.netty.channel.ChannelHandlerContext
 import org.apache.spark.SparkConf
 import org.apache.spark.api.java.JavaSparkContext
+import org.json4s.jackson.Json4sScalaModule
 
 import com.cloudera.livy.Logging
 import com.cloudera.livy.rsc.{BaseProtocol, ReplJobResults, RSCConf}
@@ -37,6 +40,9 @@ class ReplDriver(conf: SparkConf, livyConf: RSCConf)
   private[repl] var session: Session = _
 
   private val kind = Kind(livyConf.get(RSCConf.Entry.SESSION_KIND))
+  private val mapper = new ObjectMapper()
+    .registerModule(DefaultScalaModule)
+    .registerModule(Json4sScalaModule)
 
   private[repl] var interpreter: Interpreter = _
 
@@ -80,7 +86,7 @@ class ReplDriver(conf: SparkConf, livyConf: RSCConf)
       session.statements.filterKeys(id => id >= msg.from && id < until).values.toArray
     }
     val state = session.state.toString
-    new ReplJobResults(stmts.sortBy(_.id), state)
+    new ReplJobResults(mapper.writeValueAsString(stmts.sortBy(_.id)), state)
   }
 
   def handle(ctx: ChannelHandlerContext, msg: BaseProtocol.GetReplState): String = {
