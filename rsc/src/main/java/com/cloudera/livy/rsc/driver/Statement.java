@@ -20,7 +20,7 @@ package com.cloudera.livy.rsc.driver;
 import org.json4s.JsonAST.JValue;
 
 public class Statement {
-  public final int id;
+  public final Integer id;
   public final StatementState state;
   public final JValue output;
 
@@ -28,5 +28,11 @@ public class Statement {
     this.id = id;
     this.state = state;
     this.output = output;
+  }
+
+  public Statement() {
+    this.id = null;
+    this.state = null;
+    this.output = null;
   }
 }
