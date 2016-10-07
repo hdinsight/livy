@@ -22,6 +22,7 @@ import java.io._
 import java.lang.ProcessBuilder.Redirect
 import java.lang.reflect.Proxy
 import java.nio.file.{Files, Paths}
+import java.util.{Map => JavaMap}
 
 import scala.annotation.tailrec
 import scala.collection.mutable.ArrayBuffer
@@ -30,7 +31,7 @@ import scala.util.control.NonFatal
 
 import org.apache.spark.{SparkConf, SparkContext}
 import org.json4s.{DefaultFormats, JValue}
-import org.json4s.JsonAST.JObject
+import org.json4s.JsonAST.{JObject, JString}
 import org.json4s.jackson.JsonMethods._
 import org.json4s.jackson.Serialization.write
 import py4j._
@@ -223,7 +224,7 @@ private class PythonInterpreter(process: Process, gatewayServer: GatewayServer, 
 
         (content \ "status").extract[String] match {
           case "ok" =>
-            Interpreter.ExecuteSuccess((content \ "data").extract[JObject])
+            Interpreter.ExecuteSuccess((content \ "data").extract[JavaMap[String, AnyRef]])
           case "error" =>
             val ename = (content \ "ename").extract[String]
             val evalue = (content \ "evalue").extract[String]

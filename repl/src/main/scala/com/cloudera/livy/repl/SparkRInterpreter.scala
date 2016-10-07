@@ -18,9 +18,10 @@
 
 package com.cloudera.livy.repl
 
-import java.io.{File, FileOutputStream}
+import java.io.File
 import java.lang.ProcessBuilder.Redirect
 import java.nio.file.Files
+import java.util.TreeMap
 import java.util.concurrent.{CountDownLatch, Semaphore, TimeUnit}
 
 import scala.annotation.tailrec
@@ -28,10 +29,8 @@ import scala.collection.JavaConverters._
 import scala.reflect.runtime.universe
 
 import org.apache.commons.codec.binary.Base64
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.util.{ChildFirstURLClassLoader, MutableURLClassLoader, Utils}
+import org.apache.spark.SparkConf
 import org.json4s._
-import org.json4s.JsonDSL._
 
 import com.cloudera.livy.client.common.ClientConf
 
@@ -164,14 +163,15 @@ class SparkRInterpreter(process: Process, backendInstance: Any, backendThread: T
     }
 
     try {
-      var content: JObject = TEXT_PLAIN -> (sendRequest(code) + takeErrorLines())
+      val content = new TreeMap[String, String]()
+      content.put(TEXT_PLAIN, sendRequest(code) + takeErrorLines())
 
       // If we rendered anything, pass along the last image.
       tempFile.foreach { case file =>
         val bytes = Files.readAllBytes(file)
         if (bytes.nonEmpty) {
           val image = Base64.encodeBase64String(bytes)
-          content = content ~ (IMAGE_PNG -> image)
+          content.put(IMAGE_PNG, image)
         }
       }
 

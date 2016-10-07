@@ -18,13 +18,14 @@
 
 package com.cloudera.livy.repl
 
+import java.util.{Map => JavaMap}
+
 import org.apache.spark.SparkContext
-import org.json4s.JObject
 
 object Interpreter {
   abstract class ExecuteResponse
-
-  case class ExecuteSuccess(content: JObject) extends ExecuteResponse
+  // context: mimeType -> data
+  case class ExecuteSuccess(context: JavaMap[String, AnyRef]) extends ExecuteResponse
   case class ExecuteError(ename: String,
                           evalue: String,
                           traceback: Seq[String] = Seq()) extends ExecuteResponse

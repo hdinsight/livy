@@ -19,14 +19,19 @@
 package com.cloudera.livy.repl
 
 import java.io.ByteArrayOutputStream
+import java.util.{Map => JavaMap}
 
 import scala.tools.nsc.interpreter.Results
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
+import com.google.common.collect.ImmutableMap
 import org.apache.spark.rdd.RDD
-import org.json4s.DefaultFormats
-import org.json4s.Extraction
-import org.json4s.JsonAST._
-import org.json4s.JsonDSL._
+
+//import org.json4s.DefaultFormats
+//import org.json4s.Extraction
+//import org.json4s.JsonAST._
+//import org.json4s.JsonDSL._
 
 import com.cloudera.livy.Logging
 
@@ -40,7 +45,8 @@ object AbstractSparkInterpreter {
 abstract class AbstractSparkInterpreter extends Interpreter with Logging {
   import AbstractSparkInterpreter._
 
-  private implicit def formats = DefaultFormats
+  //private implicit def formats = DefaultFormats
+  private val mapper = new ObjectMapper().registerModule(DefaultScalaModule)
 
   protected val outputStream = new ByteArrayOutputStream()
 
@@ -55,15 +61,14 @@ abstract class AbstractSparkInterpreter extends Interpreter with Logging {
   override def execute(code: String): Interpreter.ExecuteResponse = restoreContextClassLoader {
     require(isStarted())
 
-    executeLines(code.trim.split("\n").toList, Interpreter.ExecuteSuccess(JObject(
-      (TEXT_PLAIN, JString(""))
-    )))
+    executeLines(code.trim.split("\n").toList, Interpreter.ExecuteSuccess(
+      ImmutableMap.of(TEXT_PLAIN, "")))
   }
 
   private def executeMagic(magic: String, rest: String): Interpreter.ExecuteResponse = {
     magic match {
       case "json" => executeJsonMagic(rest)
-      case "table" => executeTableMagic(rest)
+      case "table" => throw new NotImplementedError("Alex Man") // executeTableMagic(rest)
       case _ =>
         Interpreter.ExecuteError("UnknownMagic", f"Unknown magic command $magic")
     }
@@ -77,15 +82,14 @@ abstract class AbstractSparkInterpreter extends Interpreter with Logging {
         case None => return Interpreter.ExecuteError("NameError", f"Value $name does not exist")
       }
 
-      Interpreter.ExecuteSuccess(JObject(
-        (APPLICATION_JSON, Extraction.decompose(value))
-      ))
+      val valueJson = mapper.writeValueAsString(value)
+      Interpreter.ExecuteSuccess(ImmutableMap.of(APPLICATION_JSON, valueJson))
     } catch {
       case _: Throwable =>
         Interpreter.ExecuteError("ValueError", "Failed to convert value into a JSON value")
     }
   }
-
+  /*
   private class TypesDoNotMatch extends Exception
 
   private def convertTableType(value: JValue): String = {
@@ -176,7 +180,7 @@ abstract class AbstractSparkInterpreter extends Interpreter with Logging {
         Interpreter.ExecuteError("TypeError", "table rows have different types")
     }
   }
-
+  */
   private def executeLines(
       lines: List[String],
       resultFromLastLine: Interpreter.ExecuteResponse): Interpreter.ExecuteResponse = {
@@ -220,9 +224,7 @@ abstract class AbstractSparkInterpreter extends Interpreter with Logging {
         scala.Console.withOut(outputStream) {
           interpret(code) match {
             case Results.Success =>
-              Interpreter.ExecuteSuccess(
-                TEXT_PLAIN -> readStdout()
-              )
+              Interpreter.ExecuteSuccess(ImmutableMap.of(TEXT_PLAIN, readStdout()))
             case Results.Incomplete => Interpreter.ExecuteIncomplete()
             case Results.Error =>
               def parseStdout(stdout: String): (String, Seq[String]) = {

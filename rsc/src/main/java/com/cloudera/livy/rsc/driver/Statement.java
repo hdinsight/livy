@@ -17,9 +17,10 @@
 
 package com.cloudera.livy.rsc.driver;
 
+import java.util.Map;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.json4s.JsonAST.JObject;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Statement {
@@ -44,9 +45,9 @@ public class Statement {
   }
 
   public static class OkResult extends Result {
-    public final JObject data;
+    public final Map<String, Object> data;
 
-    public OkResult(Integer executionCount, JObject data) {
+    public OkResult(Integer executionCount, Map<String, Object> data) {
       super(STATUS_OK, executionCount);
       this.data = data;
     }
