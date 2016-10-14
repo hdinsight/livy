@@ -21,6 +21,7 @@ package com.cloudera.livy.test
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 
+import scala.concurrent.duration.Duration
 import scala.language.postfixOps
 
 import org.apache.hadoop.yarn.api.records.YarnApplicationState
@@ -131,6 +132,17 @@ class InteractiveIT extends BaseIntegrationTestSuite {
     }
   }
 
+  test("heartbeat should kill expired session") {
+    // Set it to 2s because verifySessionIdle() is calling GET every second.
+    val heartbeatTimeout = Duration.create("2s")
+    withNewSession(Spark(), Map.empty, true, heartbeatTimeout.toSeconds.toInt) { s =>
+      // If the test reaches here, that means verifySessionIdle() is successfully keeping the
+      // session alive. Now verify heartbeat is killing expired session.
+      Thread.sleep(heartbeatTimeout.toMillis * 2)
+      s.verifySessionDoesNotExist()
+    }
+  }
+
   test("recover interactive session") {
     withNewSession(Spark()) { s =>
       val stmt1 = s.run("1")
@@ -162,10 +174,13 @@ class InteractiveIT extends BaseIntegrationTestSuite {
     }
   }
 
-  private def withNewSession[R]
-    (kind: Kind, sparkConf: Map[String, String] = Map.empty, waitForIdle: Boolean = true)
+  private def withNewSession[R] (
+      kind: Kind,
+      sparkConf: Map[String, String] = Map.empty,
+      waitForIdle: Boolean = true,
+      heartbeatTimeoutInSecond: Int = 0)
     (f: (LivyRestClient#InteractiveSession) => R): R = {
-    withSession(livyClient.startSession(kind, sparkConf)) { s =>
+    withSession(livyClient.startSession(kind, sparkConf, heartbeatTimeoutInSecond)) { s =>
       if (waitForIdle) {
         s.verifySessionIdle()
       }
