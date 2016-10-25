@@ -124,10 +124,10 @@ object InteractiveSession extends Logging {
       sessionStore: SessionStore,
       mockApp: Option[SparkApp] = None,
       mockClient: Option[RSCClient] = None): InteractiveSession = {
-    val client = mockClient orElse metadata.rscDriverUri.map { uri =>
+    val client = mockClient.orElse(metadata.rscDriverUri.map { uri =>
       val builder = new LivyClientBuilder().setURI(uri)
       builder.build().asInstanceOf[RSCClient]
-    }
+    })
 
     new InteractiveSession(
       metadata.id,
@@ -319,7 +319,7 @@ object InteractiveSession extends Logging {
 
 class InteractiveSession(
     id: Int,
-    appId: Option[String],
+    appIdHint: Option[String],
     appTag: String,
     client: Option[RSCClient],
     initialState: SessionState,
@@ -340,7 +340,9 @@ class InteractiveSession(
   private val operationCounter = new AtomicLong(0)
   private var rscDriverUri: Option[URI] = None
   private var sessionLog: IndexedSeq[String] = IndexedSeq.empty
+  private val sessionSaveLock = new Object()
 
+  _appId = appIdHint
   sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
 
   private val app = mockApp.orElse {
@@ -373,7 +375,9 @@ class InteractiveSession(
 
       override def onJobSucceeded(job: JobHandle[Void], result: Void): Unit = {
         rscDriverUri = Option(client.get.getServerUri.get())
-        sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+        sessionSaveLock.synchronized {
+          sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+        }
         transition(SessionState.Idle())
       }
 
@@ -543,7 +547,9 @@ class InteractiveSession(
 
   override def appIdKnown(appId: String): Unit = {
     _appId = Option(appId)
-    sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+    sessionSaveLock.synchronized {
+      sessionStore.save(RECOVERY_SESSION_TYPE, recoveryMetadata)
+    }
   }
 
   override def stateChanged(oldState: SparkApp.State, newState: SparkApp.State): Unit = {
